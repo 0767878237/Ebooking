@@ -1,0 +1,45 @@
+services:
+  db:
+    image: postgres:16-alpine
+    container_name: ebooking-db
+    environment:
+      POSTGRES_DB: ebooking
+      POSTGRES_USER: ebooking
+      POSTGRES_PASSWORD: ebooking
+    ports:
+      - "5432:5432"
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ebooking -d ebooking"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  backend:
+    build:
+      context: ./backend
+    container_name: ebooking-backend
+    depends_on:
+      db:
+        condition: service_healthy
+    environment:
+      SPRING_DATASOURCE_URL: jdbc:postgresql://db:5432/ebooking
+      SPRING_DATASOURCE_USERNAME: ebooking
+      SPRING_DATASOURCE_PASSWORD: ebooking
+      SPRING_JPA_HIBERNATE_DDL_AUTO: none
+      SPRING_FLYWAY_ENABLED: "true"
+      SERVER_PORT: "8080"
+    ports:
+      - "8080:8080"
+
+  frontend:
+    build:
+      context: ./frontend
+    container_name: ebooking-frontend
+    ports:
+      - "3000:80"
+
+volumes:
+  pgdata:
+
