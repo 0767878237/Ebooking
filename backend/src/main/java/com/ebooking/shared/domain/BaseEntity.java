@@ -1,0 +1,45 @@
+package com.ebooking.shared.domain;
+
+import java.time.Instant;
+import java.util.UUID;
+
+import jakarta.persistence.Column;
+import jakarta.persistence.Id;
+import jakarta.persistence.MappedSuperclass;
+import jakarta.persistence.PrePersist;
+
+@MappedSuperclass
+public abstract class BaseEntity {
+
+    @Id
+    private UUID id;
+
+    @Column(nullable = false, updatable = false)
+    private Instant createdAt;
+
+    protected BaseEntity() {
+    }
+
+    protected BaseEntity(UUID id) {
+        this.id = id;
+    }
+
+    @PrePersist
+    void initializeAuditFields() {
+        if (id == null) {
+            id = UUID.randomUUID();
+        }
+        if (createdAt == null) {
+            createdAt = Instant.now();
+        }
+    }
+
+    public UUID getId() {
+        return id;
+    }
+
+    public Instant getCreatedAt() {
+        return createdAt;
+    }
+}
+
