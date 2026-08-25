@@ -1,6 +1,7 @@
 package com.ebooking.modules.booking;
 
 import java.math.BigDecimal;
+import java.time.Instant;
 
 import com.ebooking.modules.catalog.VenueSeat;
 import jakarta.persistence.EmbeddedId;
@@ -30,6 +31,11 @@ public class BookingSeat {
 
     private BigDecimal price;
 
+    private String eventTitleSnapshot;
+    private Instant showStartsAtSnapshot;
+    private String venueNameSnapshot;
+    private String seatLabelSnapshot;
+
     protected BookingSeat() {
     }
 
@@ -38,5 +44,32 @@ public class BookingSeat {
         this.booking = booking;
         this.seat = seat;
         this.price = price;
+    }
+
+    public BookingSeat(
+            Booking booking,
+            VenueSeat seat,
+            BigDecimal price,
+            String eventTitleSnapshot,
+            Instant showStartsAtSnapshot,
+            String venueNameSnapshot,
+            String seatLabelSnapshot) {
+        this(booking, seat, price);
+        this.eventTitleSnapshot = eventTitleSnapshot;
+        this.showStartsAtSnapshot = showStartsAtSnapshot;
+        this.venueNameSnapshot = venueNameSnapshot;
+        this.seatLabelSnapshot = seatLabelSnapshot;
+    }
+
+    public VenueSeat getSeat() {
+        return seat;
+    }
+
+    public BigDecimal getPrice() {
+        return price;
+    }
+
+    public String getSeatLabelSnapshot() {
+        return seatLabelSnapshot;
     }
 }
