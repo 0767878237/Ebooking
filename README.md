@@ -36,3 +36,7 @@ cd frontend && npm install && npm run dev
 - Data model and migrations: `docs/04-data-model-and-migrations.md`
 - Catalog, search and admin APIs: `docs/05-catalog-search-admin.md`
 - Seat hold and overselling protection: `docs/06-seat-hold-and-overselling.md`
+- Booking and payment state machine: `docs/07-booking-payment-state-machine.md`
+- Ticket QR and check-in: `docs/08-ticket-qr-and-checkin.md`
+- Security, reliability and observability: `docs/09-security-reliability-observability.md`
+- Testing and load smoke: `docs/10-testing-and-load.md`
