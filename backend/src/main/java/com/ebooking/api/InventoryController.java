@@ -14,6 +14,7 @@ import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestBody;
+import org.springframework.web.bind.annotation.RequestHeader;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.ResponseStatus;
 import org.springframework.web.bind.annotation.RestController;
@@ -39,8 +40,10 @@ public class InventoryController {
     @ResponseStatus(HttpStatus.CREATED)
     public SeatHoldResponse createHold(
             @PathVariable UUID showId,
+            @RequestHeader(value = "Idempotency-Key", required = false) String idempotencyKey,
             @Valid @RequestBody CreateSeatHoldRequest request) {
-        SeatHoldService.SeatHoldResult hold = seatHoldService.createHold(showId, request.userId(), request.seatIds());
+        SeatHoldService.SeatHoldResult hold = seatHoldService.createHold(
+                showId, request.userId(), request.seatIds(), idempotencyKey);
         return new SeatHoldResponse(hold.holdId(), hold.showId(), hold.expiresAt(), hold.seats());
     }
 
@@ -56,4 +59,3 @@ public class InventoryController {
             List<SeatHoldService.SeatHoldSeat> seats) {
     }
 }
-
