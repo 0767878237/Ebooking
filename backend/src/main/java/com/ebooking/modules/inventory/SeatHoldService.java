@@ -77,7 +77,8 @@ public class SeatHoldService {
                     throw new ConflictException("Idempotency key was already used for another hold.");
                 }
                 existingSeats.forEach(showSeat -> showSeat.releaseIfExpired(now));
-                if (existingHold.get().isExpiredAt(now)) {
+                if (existingHold.get().getStatus() != SeatHoldStatus.ACTIVE
+                        || existingHold.get().isExpiredAt(now)) {
                     throw new ConflictException("The original seat hold has expired.");
                 }
                 return toResult(existingHold.get(), showId, existingSeats);

@@ -1,6 +1,7 @@
 package com.ebooking.modules.inventory;
 
 import java.time.Instant;
+import java.math.BigDecimal;
 
 import com.ebooking.modules.catalog.VenueSeat;
 import com.ebooking.modules.event.Show;
@@ -39,6 +40,8 @@ public class ShowSeat {
     @JoinColumn(name = "hold_id")
     private SeatHold hold;
 
+    private BigDecimal price;
+
     @Version
     private long version;
 
@@ -50,6 +53,7 @@ public class ShowSeat {
         this.show = show;
         this.seat = seat;
         this.status = ShowSeatStatus.AVAILABLE;
+        this.price = new BigDecimal("100000.00");
     }
 
     public void releaseIfExpired(Instant now) {
@@ -69,6 +73,16 @@ public class ShowSeat {
         this.status = ShowSeatStatus.HELD;
     }
 
+    public void markSold() {
+        this.hold = null;
+        this.status = ShowSeatStatus.SOLD;
+    }
+
+    public void releaseToAvailable() {
+        this.hold = null;
+        this.status = ShowSeatStatus.AVAILABLE;
+    }
+
     public VenueSeat getSeat() {
         return seat;
     }
@@ -83,5 +97,9 @@ public class ShowSeat {
 
     public SeatHold getHold() {
         return hold;
+    }
+
+    public BigDecimal getPrice() {
+        return price == null ? BigDecimal.ZERO : price;
     }
 }

@@ -68,4 +68,21 @@ public class SeatHold extends BaseEntity {
     public String getIdempotencyKey() {
         return idempotencyKey;
     }
+
+    public UserAccount getUser() {
+        return user;
+    }
+
+    public void convert() {
+        if (status != SeatHoldStatus.ACTIVE) {
+            throw new IllegalStateException("Only an active hold can be converted.");
+        }
+        status = SeatHoldStatus.CONVERTED;
+    }
+
+    public void cancel() {
+        if (status == SeatHoldStatus.ACTIVE || status == SeatHoldStatus.CONVERTED) {
+            status = SeatHoldStatus.CANCELLED;
+        }
+    }
 }
