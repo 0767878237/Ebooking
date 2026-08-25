@@ -7,6 +7,7 @@ import com.ebooking.modules.catalog.City;
 import com.ebooking.modules.catalog.CityRepository;
 import com.ebooking.modules.catalog.Venue;
 import com.ebooking.modules.catalog.VenueRepository;
+import com.ebooking.modules.catalog.VenueSeatRepository;
 import com.ebooking.modules.event.Event;
 import com.ebooking.modules.event.EventRepository;
 import com.ebooking.modules.event.Genre;
@@ -14,6 +15,8 @@ import com.ebooking.modules.event.GenreRepository;
 import com.ebooking.modules.event.Show;
 import com.ebooking.modules.event.ShowRepository;
 import com.ebooking.modules.identity.UserAccountRepository;
+import com.ebooking.modules.inventory.ShowSeat;
+import com.ebooking.modules.inventory.ShowSeatRepository;
 import com.ebooking.shared.web.NotFoundException;
 import jakarta.validation.Valid;
 import jakarta.validation.constraints.NotBlank;
@@ -40,6 +43,8 @@ public class AdminCatalogController {
     private final EventRepository eventRepository;
     private final ShowRepository showRepository;
     private final UserAccountRepository userAccountRepository;
+    private final VenueSeatRepository venueSeatRepository;
+    private final ShowSeatRepository showSeatRepository;
 
     public AdminCatalogController(
             CityRepository cityRepository,
@@ -47,13 +52,17 @@ public class AdminCatalogController {
             GenreRepository genreRepository,
             EventRepository eventRepository,
             ShowRepository showRepository,
-            UserAccountRepository userAccountRepository) {
+            UserAccountRepository userAccountRepository,
+            VenueSeatRepository venueSeatRepository,
+            ShowSeatRepository showSeatRepository) {
         this.cityRepository = cityRepository;
         this.venueRepository = venueRepository;
         this.genreRepository = genreRepository;
         this.eventRepository = eventRepository;
         this.showRepository = showRepository;
         this.userAccountRepository = userAccountRepository;
+        this.venueSeatRepository = venueSeatRepository;
+        this.showSeatRepository = showSeatRepository;
     }
 
     @PostMapping("/cities")
@@ -106,6 +115,7 @@ public class AdminCatalogController {
 
     @PostMapping("/shows")
     @ResponseStatus(HttpStatus.CREATED)
+    @Transactional
     public ShowResponse createShow(@Valid @RequestBody ShowRequest request) {
         Event event = eventRepository.findById(request.eventId())
                 .orElseThrow(() -> new NotFoundException("Event was not found."));
@@ -120,6 +130,11 @@ public class AdminCatalogController {
                 venue,
                 request.startsAt(),
                 request.endsAt()));
+        showSeatRepository.saveAll(venueSeatRepository
+                .findByVenueIdOrderBySectionNameAscRowNameAscSeatNumberAsc(venue.getId())
+                .stream()
+                .map(seat -> new ShowSeat(show, seat))
+                .toList());
         return new ShowResponse(show.getId(), event.getId(), venue.getId(), show.getStartsAt(), show.getEndsAt());
     }
 
