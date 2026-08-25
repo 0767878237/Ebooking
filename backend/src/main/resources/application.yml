@@ -19,8 +19,15 @@ management:
   endpoints:
     web:
       exposure:
-        include: health,info,metrics
+        include: health,info,metrics,prometheus
+  endpoint:
+    health:
+      show-details: when_authorized
 
 springdoc:
   swagger-ui:
     path: /swagger-ui.html
+
+logging:
+  pattern:
+    level: "%5p [corr:%X{correlationId:-}]"

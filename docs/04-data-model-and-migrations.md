@@ -24,6 +24,10 @@
 
 - `V1__create_core_schema.sql`: schema demo ban dau cho catalog, event, inventory va booking.
 - `V2__complete_booking_domain_schema.sql`: chuan hoa schema theo requirement tuan 2, doi `venue_seats` thanh `seats`, doi `booking_seats` thanh `booking_items`, bo sung role, genre, payment, ticket, refresh token, audit log, snapshot va index.
+- `V3__add_hold_idempotency.sql`: them idempotency key cho hold.
+- `V4__booking_payment_idempotency.sql`: them booking expiry/hold reference, payment idempotency va unique payment moi booking.
+- `V5__align_payment_audit_fields.sql`: dong bo `deleted_at` cho entity payment ke thua audit base.
+- `V6__align_ticket_audit_fields.sql`: dong bo `deleted_at` cho entity ticket ke thua audit base.
 
 Khong sua migration da chay. Migration moi duoc them theo thu tu Flyway de database local va moi truong sau nay co lich su ro rang.
 
@@ -34,4 +38,3 @@ MVP dung PostgreSQL, khong dung Elasticsearch. Da bat `pg_trgm` va tao GIN index
 ## Bao ve inventory
 
 `show_seats` dung trang thai `AVAILABLE`, `HELD`, `SOLD`, co `hold_id`, token hash, user giu, thoi diem het han va gia tai thoi diem show. Unique key `(show_id, seat_id)` la lop bao ve cuoi cung cho invariant khong ban trung ghe.
-
