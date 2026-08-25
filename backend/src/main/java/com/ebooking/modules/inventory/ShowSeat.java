@@ -73,6 +73,10 @@ public class ShowSeat {
         return seat;
     }
 
+    public Show getShow() {
+        return show;
+    }
+
     public ShowSeatStatus getStatus() {
         return status;
     }
@@ -81,4 +85,3 @@ public class ShowSeat {
         return hold;
     }
 }
-

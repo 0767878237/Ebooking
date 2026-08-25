@@ -39,11 +39,7 @@ public class InventoryQueryService {
     }
 
     private ShowSeatStatus resolvedStatus(ShowSeat showSeat, Instant now) {
-        if (showSeat.getStatus() == ShowSeatStatus.HELD
-                && showSeat.getHold() != null
-                && showSeat.getHold().isExpiredAt(now)) {
-            return ShowSeatStatus.AVAILABLE;
-        }
+        showSeat.releaseIfExpired(now);
         return showSeat.getStatus();
     }
 

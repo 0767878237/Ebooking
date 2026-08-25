@@ -14,6 +14,7 @@ import com.ebooking.modules.identity.UserAccountRepository;
 import com.ebooking.shared.web.ConflictException;
 import com.ebooking.shared.web.NotFoundException;
 import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.scheduling.annotation.Scheduled;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -52,9 +53,35 @@ public class SeatHoldService {
 
     @Transactional
     public SeatHoldResult createHold(UUID showId, UUID userId, List<UUID> requestedSeatIds) {
+        return createHold(showId, userId, requestedSeatIds, null);
+    }
+
+    @Transactional
+    public SeatHoldResult createHold(
+            UUID showId,
+            UUID userId,
+            List<UUID> requestedSeatIds,
+            String idempotencyKey) {
         Set<UUID> requestedSeats = Set.copyOf(requestedSeatIds);
         if (requestedSeats.size() != requestedSeatIds.size()) {
             throw new IllegalArgumentException("Seat list must not contain duplicates.");
+        }
+
+        Instant now = clock.instant();
+        String normalizedIdempotencyKey = normalizeIdempotencyKey(idempotencyKey);
+        if (normalizedIdempotencyKey != null) {
+            var existingHold = seatHoldRepository.findByIdempotencyKey(normalizedIdempotencyKey);
+            if (existingHold.isPresent()) {
+                List<ShowSeat> existingSeats = showSeatRepository.lockByHoldId(existingHold.get().getId());
+                if (existingSeats.isEmpty() || !showId.equals(existingSeats.get(0).getShow().getId())) {
+                    throw new ConflictException("Idempotency key was already used for another hold.");
+                }
+                existingSeats.forEach(showSeat -> showSeat.releaseIfExpired(now));
+                if (existingHold.get().isExpiredAt(now)) {
+                    throw new ConflictException("The original seat hold has expired.");
+                }
+                return toResult(existingHold.get(), showId, existingSeats);
+            }
         }
 
         showRepository.findById(showId)
@@ -70,7 +97,6 @@ public class SeatHoldService {
             throw new NotFoundException("One or more seats do not belong to this show.");
         }
 
-        Instant now = clock.instant();
         showSeats.forEach(showSeat -> showSeat.releaseIfExpired(now));
 
         List<String> unavailableSeats = showSeats.stream()
@@ -83,9 +109,30 @@ public class SeatHoldService {
         }
 
         Instant expiresAt = now.plus(HOLD_DURATION);
-        SeatHold hold = seatHoldRepository.save(new SeatHold(UUID.randomUUID(), user, expiresAt));
+        SeatHold hold = seatHoldRepository.save(new SeatHold(
+                UUID.randomUUID(), user, expiresAt, normalizedIdempotencyKey));
         showSeats.forEach(showSeat -> showSeat.hold(hold));
 
+        return toResult(hold, showId, showSeats);
+    }
+
+    @Scheduled(fixedDelayString = "30000")
+    @Transactional
+    public int releaseExpiredHolds() {
+        Instant now = clock.instant();
+        int released = 0;
+        for (SeatHold hold : seatHoldRepository.findByStatusAndExpiresAtLessThanEqual(
+                SeatHoldStatus.ACTIVE, now)) {
+            List<ShowSeat> showSeats = showSeatRepository.lockByHoldId(hold.getId());
+            showSeats.forEach(showSeat -> showSeat.releaseIfExpired(now));
+            if (hold.getStatus() == SeatHoldStatus.EXPIRED) {
+                released++;
+            }
+        }
+        return released;
+    }
+
+    private SeatHoldResult toResult(SeatHold hold, UUID showId, List<ShowSeat> showSeats) {
         List<SeatHoldSeat> seats = showSeats.stream()
                 .map(showSeat -> new SeatHoldSeat(
                         showSeat.getSeat().getId(),
@@ -93,7 +140,14 @@ public class SeatHoldService {
                 .sorted(Comparator.comparing(SeatHoldSeat::label))
                 .toList();
 
-        return new SeatHoldResult(hold.getId(), showId, expiresAt, seats);
+        return new SeatHoldResult(hold.getId(), showId, hold.getExpiresAt(), seats);
+    }
+
+    private static String normalizeIdempotencyKey(String value) {
+        if (value == null || value.isBlank()) {
+            return null;
+        }
+        return value.trim();
     }
 
     private String seatLabel(com.ebooking.modules.catalog.VenueSeat seat) {

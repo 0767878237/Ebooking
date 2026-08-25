@@ -15,6 +15,7 @@ import java.util.Optional;
 import java.util.UUID;
 
 import com.ebooking.modules.catalog.VenueSeat;
+import com.ebooking.modules.catalog.VenueSection;
 import com.ebooking.modules.event.Show;
 import com.ebooking.modules.event.ShowRepository;
 import com.ebooking.modules.identity.UserAccountRepository;
@@ -41,7 +42,8 @@ class SeatHoldServiceTest {
         UUID showId = UUID.randomUUID();
         UUID seatId = UUID.randomUUID();
         Show show = new Show(showId, null, null, now.plusSeconds(3600), now.plusSeconds(7200));
-        VenueSeat seat = new VenueSeat(seatId, null, "A", "A", 1);
+        VenueSection section = new VenueSection(UUID.randomUUID(), null, "A");
+        VenueSeat seat = new VenueSeat(seatId, null, section, "A", 1);
         ShowSeat showSeat = new ShowSeat(show, seat);
 
         when(showRepository.findById(showId)).thenReturn(Optional.of(show));
@@ -62,7 +64,8 @@ class SeatHoldServiceTest {
         UUID showId = UUID.randomUUID();
         UUID seatId = UUID.randomUUID();
         Show show = new Show(showId, null, null, now.plusSeconds(3600), now.plusSeconds(7200));
-        VenueSeat seat = new VenueSeat(seatId, null, "A", "A", 1);
+        VenueSection section = new VenueSection(UUID.randomUUID(), null, "A");
+        VenueSeat seat = new VenueSeat(seatId, null, section, "A", 1);
         ShowSeat showSeat = new ShowSeat(show, seat);
         showSeat.hold(new SeatHold(UUID.randomUUID(), null, now.plusSeconds(60)));
 
@@ -74,4 +77,3 @@ class SeatHoldServiceTest {
                 .hasMessageContaining("A-A1");
     }
 }
-

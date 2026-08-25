@@ -18,7 +18,7 @@ public interface ShowSeatRepository extends JpaRepository<ShowSeat, ShowSeatId> 
             join fetch showSeat.seat seat
             left join fetch showSeat.hold
             where showSeat.show.id = :showId
-            order by seat.sectionName, seat.rowName, seat.seatNumber
+            order by seat.section.name, seat.rowName, seat.seatNumber
             """)
     List<ShowSeat> findSeatMapByShowId(@Param("showId") UUID showId);
 
@@ -35,5 +35,16 @@ public interface ShowSeatRepository extends JpaRepository<ShowSeat, ShowSeatId> 
     List<ShowSeat> lockByShowIdAndSeatIds(
             @Param("showId") UUID showId,
             @Param("seatIds") Collection<UUID> seatIds);
-}
 
+    @Lock(LockModeType.PESSIMISTIC_WRITE)
+    @Query("""
+            select showSeat
+            from ShowSeat showSeat
+            join fetch showSeat.show
+            join fetch showSeat.seat seat
+            join fetch showSeat.hold
+            where showSeat.hold.id = :holdId
+            order by seat.id
+            """)
+    List<ShowSeat> lockByHoldId(@Param("holdId") UUID holdId);
+}
