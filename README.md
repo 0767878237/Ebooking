@@ -26,3 +26,10 @@ Hoac chay rieng:
 cd backend && mvn spring-boot:run
 cd frontend && npm install && npm run dev
 ```
+
+## API demo
+
+- Web: `http://localhost:3000`
+- API health: `http://localhost:8080/actuator/health`
+- OpenAPI: `http://localhost:8080/swagger-ui.html`
+- Seat hold flow: `docs/03-inventory-and-seat-holds.md`
