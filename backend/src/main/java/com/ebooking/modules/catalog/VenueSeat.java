@@ -10,24 +10,27 @@ import jakarta.persistence.ManyToOne;
 import jakarta.persistence.Table;
 
 @Entity
-@Table(name = "venue_seats")
+@Table(name = "seats")
 public class VenueSeat extends BaseEntity {
 
     @ManyToOne(fetch = FetchType.LAZY, optional = false)
     @JoinColumn(name = "venue_id")
     private Venue venue;
 
-    private String sectionName;
+    @ManyToOne(fetch = FetchType.LAZY, optional = false)
+    @JoinColumn(name = "section_id")
+    private VenueSection section;
+
     private String rowName;
     private int seatNumber;
 
     protected VenueSeat() {
     }
 
-    public VenueSeat(UUID id, Venue venue, String sectionName, String rowName, int seatNumber) {
+    public VenueSeat(UUID id, Venue venue, VenueSection section, String rowName, int seatNumber) {
         super(id);
         this.venue = venue;
-        this.sectionName = sectionName;
+        this.section = section;
         this.rowName = rowName;
         this.seatNumber = seatNumber;
     }
@@ -37,7 +40,7 @@ public class VenueSeat extends BaseEntity {
     }
 
     public String getSectionName() {
-        return sectionName;
+        return section.getName();
     }
 
     public String getRowName() {
@@ -48,4 +51,3 @@ public class VenueSeat extends BaseEntity {
         return seatNumber;
     }
 }
-
