@@ -12,7 +12,7 @@ import jakarta.persistence.MapsId;
 import jakarta.persistence.Table;
 
 @Entity
-@Table(name = "booking_seats")
+@Table(name = "booking_items")
 public class BookingSeat {
 
     @EmbeddedId
@@ -40,4 +40,3 @@ public class BookingSeat {
         this.price = price;
     }
 }
-

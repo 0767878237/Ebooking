@@ -1,10 +1,12 @@
 package com.ebooking.shared.web;
 
 import java.time.Instant;
+import java.util.List;
 import java.util.Map;
 
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
+import org.springframework.web.bind.MethodArgumentNotValidException;
 import org.springframework.web.bind.annotation.ExceptionHandler;
 import org.springframework.web.bind.annotation.RestControllerAdvice;
 
@@ -24,6 +26,20 @@ public class ApiExceptionHandler {
     @ExceptionHandler(IllegalArgumentException.class)
     ResponseEntity<Map<String, Object>> handleBadRequest(IllegalArgumentException exception) {
         return error(HttpStatus.BAD_REQUEST, exception.getMessage());
+    }
+
+    @ExceptionHandler(MethodArgumentNotValidException.class)
+    ResponseEntity<Map<String, Object>> handleValidation(MethodArgumentNotValidException exception) {
+        List<Map<String, String>> violations = exception.getBindingResult().getFieldErrors().stream()
+                .map(fieldError -> Map.of(
+                        "field", fieldError.getField(),
+                        "message", String.valueOf(fieldError.getDefaultMessage())))
+                .toList();
+        return ResponseEntity.badRequest().body(Map.of(
+                "status", HttpStatus.BAD_REQUEST.value(),
+                "message", "Request validation failed.",
+                "violations", violations,
+                "timestamp", Instant.now().toString()));
     }
 
     private ResponseEntity<Map<String, Object>> error(HttpStatus status, String message) {
