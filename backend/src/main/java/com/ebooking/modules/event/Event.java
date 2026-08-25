@@ -18,6 +18,10 @@ public class Event extends BaseEntity {
     @JoinColumn(name = "organizer_id")
     private UserAccount organizer;
 
+    @ManyToOne(fetch = FetchType.LAZY, optional = false)
+    @JoinColumn(name = "genre_id")
+    private Genre genre;
+
     private String title;
     private String description;
     private String category;
@@ -26,9 +30,17 @@ public class Event extends BaseEntity {
     protected Event() {
     }
 
-    public Event(UUID id, UserAccount organizer, String title, String description, String category, boolean published) {
+    public Event(
+            UUID id,
+            UserAccount organizer,
+            Genre genre,
+            String title,
+            String description,
+            String category,
+            boolean published) {
         super(id);
         this.organizer = organizer;
+        this.genre = genre;
         this.title = title;
         this.description = description;
         this.category = category;
@@ -50,5 +62,12 @@ public class Event extends BaseEntity {
     public boolean isPublished() {
         return published;
     }
-}
 
+    public Genre getGenre() {
+        return genre;
+    }
+
+    public void setPublished(boolean published) {
+        this.published = published;
+    }
+}
