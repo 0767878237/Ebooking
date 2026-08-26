@@ -1,6 +1,5 @@
 package com.ebooking.modules.event;
 
-import java.util.List;
 import java.util.UUID;
 
 import org.springframework.data.domain.Page;
@@ -12,7 +11,8 @@ import org.springframework.data.jpa.domain.Specification;
 
 public interface EventRepository extends JpaRepository<Event, UUID>, JpaSpecificationExecutor<Event> {
 
-    List<Event> findByPublishedTrueOrderByCreatedAtDesc();
+    @EntityGraph(attributePaths = "genre")
+    Page<Event> findByPublishedTrueAndDeletedAtIsNull(Pageable pageable);
 
     @EntityGraph(attributePaths = "genre")
     Page<Event> findAll(Specification<Event> specification, Pageable pageable);

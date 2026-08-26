@@ -1,8 +1,5 @@
 package com.ebooking.modules.ticket;
 
-import java.nio.charset.StandardCharsets;
-import java.security.MessageDigest;
-import java.security.NoSuchAlgorithmException;
 import java.util.List;
 import java.util.UUID;
 
@@ -18,27 +15,34 @@ import com.ebooking.shared.web.ConflictException;
 import com.ebooking.shared.web.NotFoundException;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 
 @Service
 public class TicketService {
+
+    private static final Logger log = LoggerFactory.getLogger(TicketService.class);
 
     private final BookingRepository bookingRepository;
     private final BookingSeatRepository bookingSeatRepository;
     private final TicketRepository ticketRepository;
     private final TicketScanRepository ticketScanRepository;
     private final UserAccountRepository userAccountRepository;
+    private final QrTokenService qrTokenService;
 
     public TicketService(
             BookingRepository bookingRepository,
             BookingSeatRepository bookingSeatRepository,
             TicketRepository ticketRepository,
             TicketScanRepository ticketScanRepository,
-            UserAccountRepository userAccountRepository) {
+            UserAccountRepository userAccountRepository,
+            QrTokenService qrTokenService) {
         this.bookingRepository = bookingRepository;
         this.bookingSeatRepository = bookingSeatRepository;
         this.ticketRepository = ticketRepository;
         this.ticketScanRepository = ticketScanRepository;
         this.userAccountRepository = userAccountRepository;
+        this.qrTokenService = qrTokenService;
     }
 
     @Transactional
@@ -51,23 +55,23 @@ public class TicketService {
 
         List<Ticket> existing = ticketRepository.findByBookingIdOrderByTicketCode(bookingId);
         if (!existing.isEmpty()) {
-            return existing.stream().map(TicketResult::from).toList();
+            return existing.stream().map(this::toResult).toList();
         }
 
         List<Ticket> tickets = bookingSeatRepository.findByBookingIdOrderBySeatLabelSnapshot(bookingId)
                 .stream()
                 .map(item -> createTicket(booking, item))
                 .toList();
-        return ticketRepository.saveAll(tickets).stream().map(TicketResult::from).toList();
+        return ticketRepository.saveAll(tickets).stream().map(this::toResult).toList();
     }
 
     @Transactional(readOnly = true)
-    public List<TicketResult> findByBooking(UUID bookingId) {
-        if (!bookingRepository.existsById(bookingId)) {
+    public List<TicketResult> findByBooking(UUID bookingId, UUID userId) {
+        if (bookingRepository.findByIdAndUserId(bookingId, userId).isEmpty()) {
             throw new NotFoundException("Booking was not found.");
         }
         return ticketRepository.findByBookingIdOrderByTicketCode(bookingId).stream()
-                .map(TicketResult::from)
+                .map(this::toResult)
                 .toList();
     }
 
@@ -80,7 +84,7 @@ public class TicketService {
         }
 
         String ticketCode = qrPayload == null ? "" : qrPayload.trim();
-        Ticket ticket = ticketRepository.lockByTicketCode(ticketCode).orElse(null);
+        Ticket ticket = ticketRepository.lockByQrTokenHash(qrTokenService.hashPayload(ticketCode)).orElse(null);
         if (ticket == null) {
             return new ScanResult(null, TicketScanResult.INVALID, null);
         }
@@ -97,31 +101,32 @@ public class TicketService {
 
         ticketScanRepository.save(new TicketScan(
                 UUID.randomUUID(), ticket, staff, result, deviceId, note));
+        log.info("Ticket scanned: ticketId={}, staffUserId={}, result={}",
+                ticket.getId(), staffUserId, result);
         return new ScanResult(ticket.getTicketCode(), result, ticket.getUsedAt());
     }
 
     private Ticket createTicket(Booking booking, BookingSeat item) {
         String ticketCode = "TKT-" + UUID.randomUUID().toString().replace("-", "").toUpperCase();
+        String qrPayload = qrTokenService.payloadFor(ticketCode);
         return new Ticket(
                 UUID.randomUUID(),
                 booking,
                 item.getSeat(),
                 ticketCode,
-                sha256(ticketCode));
+                qrTokenService.hashPayload(qrPayload));
     }
 
-    private static String sha256(String value) {
-        try {
-            byte[] digest = MessageDigest.getInstance("SHA-256")
-                    .digest(value.getBytes(StandardCharsets.UTF_8));
-            StringBuilder hex = new StringBuilder(digest.length * 2);
-            for (byte current : digest) {
-                hex.append(String.format("%02x", current));
-            }
-            return hex.toString();
-        } catch (NoSuchAlgorithmException exception) {
-            throw new IllegalStateException("SHA-256 is not available.", exception);
-        }
+    private TicketResult toResult(Ticket ticket) {
+        return new TicketResult(
+                ticket.getId(),
+                ticket.getBooking().getId(),
+                ticket.getSeat().getId(),
+                ticket.getTicketCode(),
+                qrTokenService.payloadFor(ticket.getTicketCode()),
+                ticket.getStatus(),
+                ticket.getIssuedAt(),
+                ticket.getUsedAt());
     }
 
     public record TicketResult(
@@ -134,17 +139,6 @@ public class TicketService {
             java.time.Instant issuedAt,
             java.time.Instant usedAt) {
 
-        static TicketResult from(Ticket ticket) {
-            return new TicketResult(
-                    ticket.getId(),
-                    ticket.getBooking().getId(),
-                    ticket.getSeat().getId(),
-                    ticket.getTicketCode(),
-                    ticket.getTicketCode(),
-                    ticket.getStatus(),
-                    ticket.getIssuedAt(),
-                    ticket.getUsedAt());
-        }
     }
 
     public record ScanResult(String ticketCode, TicketScanResult result, java.time.Instant usedAt) {
