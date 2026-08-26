@@ -16,8 +16,10 @@ public interface ShowSeatRepository extends JpaRepository<ShowSeat, ShowSeatId> 
             select showSeat
             from ShowSeat showSeat
             join fetch showSeat.seat seat
+            join fetch seat.section
             left join fetch showSeat.hold
             where showSeat.show.id = :showId
+              and showSeat.show.deletedAt is null
             order by seat.section.name, seat.rowName, seat.seatNumber
             """)
     List<ShowSeat> findSeatMapByShowId(@Param("showId") UUID showId);
@@ -27,6 +29,7 @@ public interface ShowSeatRepository extends JpaRepository<ShowSeat, ShowSeatId> 
             select showSeat
             from ShowSeat showSeat
             join fetch showSeat.seat seat
+            join fetch seat.section
             left join fetch showSeat.hold
             where showSeat.show.id = :showId
               and seat.id in :seatIds
@@ -40,8 +43,11 @@ public interface ShowSeatRepository extends JpaRepository<ShowSeat, ShowSeatId> 
     @Query("""
             select showSeat
             from ShowSeat showSeat
-            join fetch showSeat.show
+            join fetch showSeat.show show
+            join fetch show.event
+            join fetch show.venue
             join fetch showSeat.seat seat
+            join fetch seat.section
             join fetch showSeat.hold
             where showSeat.hold.id = :holdId
             order by seat.id

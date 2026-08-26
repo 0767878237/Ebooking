@@ -58,10 +58,13 @@ public class ShowSeat {
 
     public void releaseIfExpired(Instant now) {
         if (status == ShowSeatStatus.HELD && hold != null && hold.isExpiredAt(now)) {
-            hold.expire();
             hold = null;
             status = ShowSeatStatus.AVAILABLE;
         }
+    }
+
+    public boolean isHeldByExpiredHold(Instant now) {
+        return status == ShowSeatStatus.HELD && hold != null && hold.isExpiredAt(now);
     }
 
     public boolean isAvailable() {

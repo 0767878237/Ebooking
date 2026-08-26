@@ -7,6 +7,7 @@ import java.util.Comparator;
 import java.util.List;
 import java.util.Set;
 import java.util.UUID;
+import org.springframework.data.domain.PageRequest;
 
 import com.ebooking.modules.event.ShowRepository;
 import com.ebooking.modules.identity.UserAccount;
@@ -72,16 +73,27 @@ public class SeatHoldService {
         if (normalizedIdempotencyKey != null) {
             var existingHold = seatHoldRepository.findByIdempotencyKey(normalizedIdempotencyKey);
             if (existingHold.isPresent()) {
-                List<ShowSeat> existingSeats = showSeatRepository.lockByHoldId(existingHold.get().getId());
+                SeatHold originalHold = existingHold.get();
+                if (originalHold.getUser() == null || userId == null
+                        || !userId.equals(originalHold.getUser().getId())) {
+                    throw new ConflictException("Idempotency key belongs to another user.");
+                }
+                List<ShowSeat> existingSeats = showSeatRepository.lockByHoldId(originalHold.getId());
                 if (existingSeats.isEmpty() || !showId.equals(existingSeats.get(0).getShow().getId())) {
                     throw new ConflictException("Idempotency key was already used for another hold.");
                 }
+                Set<UUID> existingSeatIds = existingSeats.stream()
+                        .map(showSeat -> showSeat.getSeat().getId())
+                        .collect(java.util.stream.Collectors.toSet());
+                if (!existingSeatIds.equals(requestedSeats)) {
+                    throw new ConflictException("Idempotency key was reused with different seats.");
+                }
                 existingSeats.forEach(showSeat -> showSeat.releaseIfExpired(now));
-                if (existingHold.get().getStatus() != SeatHoldStatus.ACTIVE
-                        || existingHold.get().isExpiredAt(now)) {
+                if (originalHold.getStatus() != SeatHoldStatus.ACTIVE
+                        || originalHold.isExpiredAt(now)) {
                     throw new ConflictException("The original seat hold has expired.");
                 }
-                return toResult(existingHold.get(), showId, existingSeats);
+                return toResult(originalHold, showId, existingSeats);
             }
         }
 
@@ -98,7 +110,7 @@ public class SeatHoldService {
             throw new NotFoundException("One or more seats do not belong to this show.");
         }
 
-        showSeats.forEach(showSeat -> showSeat.releaseIfExpired(now));
+        releaseExpiredSelectedHolds(showSeats, now);
 
         List<String> unavailableSeats = showSeats.stream()
                 .filter(showSeat -> !showSeat.isAvailable())
@@ -122,15 +134,37 @@ public class SeatHoldService {
     public int releaseExpiredHolds() {
         Instant now = clock.instant();
         int released = 0;
-        for (SeatHold hold : seatHoldRepository.findByStatusAndExpiresAtLessThanEqual(
-                SeatHoldStatus.ACTIVE, now)) {
-            List<ShowSeat> showSeats = showSeatRepository.lockByHoldId(hold.getId());
-            showSeats.forEach(showSeat -> showSeat.releaseIfExpired(now));
-            if (hold.getStatus() == SeatHoldStatus.EXPIRED) {
-                released++;
+        List<SeatHold> candidates;
+        do {
+            candidates = seatHoldRepository.findByStatusAndExpiresAtLessThanEqual(
+                    SeatHoldStatus.ACTIVE, now, PageRequest.of(0, 500)).getContent();
+            for (SeatHold hold : candidates) {
+                List<ShowSeat> showSeats = showSeatRepository.lockByHoldId(hold.getId());
+                if (releaseExpiredHold(hold, showSeats, now)) {
+                    released++;
+                }
             }
-        }
+            seatHoldRepository.flush();
+        } while (candidates.size() == 500);
         return released;
+    }
+
+    private boolean releaseExpiredHold(SeatHold hold, List<ShowSeat> showSeats, Instant now) {
+        if (!hold.isExpiredAt(now)) {
+            return false;
+        }
+        hold.expire();
+        showSeats.forEach(ShowSeat::releaseToAvailable);
+        return true;
+    }
+
+    private void releaseExpiredSelectedHolds(List<ShowSeat> selectedSeats, Instant now) {
+        selectedSeats.stream()
+                .filter(showSeat -> showSeat.isHeldByExpiredHold(now))
+                .map(ShowSeat::getHold)
+                .distinct()
+                .forEach(expiredHold -> releaseExpiredHold(
+                        expiredHold, showSeatRepository.lockByHoldId(expiredHold.getId()), now));
     }
 
     private SeatHoldResult toResult(SeatHold hold, UUID showId, List<ShowSeat> showSeats) {
@@ -148,7 +182,11 @@ public class SeatHoldService {
         if (value == null || value.isBlank()) {
             return null;
         }
-        return value.trim();
+        String normalized = value.trim();
+        if (normalized.length() > 100) {
+            throw new IllegalArgumentException("Idempotency-Key must be at most 100 characters.");
+        }
+        return normalized;
     }
 
     private String seatLabel(com.ebooking.modules.catalog.VenueSeat seat) {

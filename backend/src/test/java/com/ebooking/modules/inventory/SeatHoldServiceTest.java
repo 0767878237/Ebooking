@@ -22,6 +22,8 @@ import com.ebooking.modules.identity.UserAccountRepository;
 import com.ebooking.shared.web.ConflictException;
 import org.junit.jupiter.api.Test;
 import org.mockito.Mockito;
+import org.springframework.data.domain.PageImpl;
+import org.springframework.data.domain.Pageable;
 
 class SeatHoldServiceTest {
 
@@ -75,5 +77,30 @@ class SeatHoldServiceTest {
         assertThatThrownBy(() -> service.createHold(showId, null, List.of(seatId)))
                 .isInstanceOf(ConflictException.class)
                 .hasMessageContaining("A-A1");
+    }
+
+    @Test
+    void releasesEverySeatWhenMultiSeatHoldExpires() {
+        UUID showId = UUID.randomUUID();
+        Show show = new Show(showId, null, null, now.plusSeconds(3600), now.plusSeconds(7200));
+        VenueSection section = new VenueSection(UUID.randomUUID(), null, "A");
+        VenueSeat firstSeat = new VenueSeat(UUID.randomUUID(), null, section, "A", 1);
+        VenueSeat secondSeat = new VenueSeat(UUID.randomUUID(), null, section, "A", 2);
+        SeatHold hold = new SeatHold(UUID.randomUUID(), null, now.minusSeconds(1));
+        ShowSeat firstShowSeat = new ShowSeat(show, firstSeat);
+        ShowSeat secondShowSeat = new ShowSeat(show, secondSeat);
+        firstShowSeat.hold(hold);
+        secondShowSeat.hold(hold);
+
+        when(seatHoldRepository.findByStatusAndExpiresAtLessThanEqual(
+                eq(SeatHoldStatus.ACTIVE), eq(now), any(Pageable.class)))
+                .thenReturn(new PageImpl<>(List.of(hold)), new PageImpl<>(List.of()));
+        when(showSeatRepository.lockByHoldId(hold.getId()))
+                .thenReturn(List.of(firstShowSeat, secondShowSeat));
+
+        assertThat(service.releaseExpiredHolds()).isEqualTo(1);
+        assertThat(hold.getStatus()).isEqualTo(SeatHoldStatus.EXPIRED);
+        assertThat(firstShowSeat.getStatus()).isEqualTo(ShowSeatStatus.AVAILABLE);
+        assertThat(secondShowSeat.getStatus()).isEqualTo(ShowSeatStatus.AVAILABLE);
     }
 }

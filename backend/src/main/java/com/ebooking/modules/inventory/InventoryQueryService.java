@@ -25,7 +25,7 @@ public class InventoryQueryService {
         this.clock = clock;
     }
 
-    @Transactional
+    @Transactional(readOnly = true)
     public List<ShowSeatView> findSeatMap(UUID showId) {
         Instant now = clock.instant();
         return showSeatRepository.findSeatMapByShowId(showId).stream()
@@ -39,8 +39,7 @@ public class InventoryQueryService {
     }
 
     private ShowSeatStatus resolvedStatus(ShowSeat showSeat, Instant now) {
-        showSeat.releaseIfExpired(now);
-        return showSeat.getStatus();
+        return showSeat.isHeldByExpiredHold(now) ? ShowSeatStatus.AVAILABLE : showSeat.getStatus();
     }
 
     public record ShowSeatView(
