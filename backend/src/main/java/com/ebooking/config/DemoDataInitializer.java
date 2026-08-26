@@ -15,6 +15,7 @@ import com.ebooking.modules.catalog.VenueSeat;
 import com.ebooking.modules.catalog.VenueSeatRepository;
 import com.ebooking.modules.event.Event;
 import com.ebooking.modules.event.EventRepository;
+import com.ebooking.modules.event.Genre;
 import com.ebooking.modules.event.GenreRepository;
 import com.ebooking.modules.event.Show;
 import com.ebooking.modules.event.ShowRepository;
@@ -111,7 +112,9 @@ public class DemoDataInitializer implements ApplicationRunner {
             Event event = eventRepository.save(new Event(
                     UUID.randomUUID(),
                     organizer,
-                    genreRepository.findByNameIgnoreCase("Music").orElseThrow(),
+                    genreRepository.findByNameIgnoreCase("Music")
+                            .orElseGet(() -> genreRepository.save(new Genre(
+                                    UUID.randomUUID(), "Music", "music"))),
                     "E Booking Launch Concert",
                     "A demo event used to exercise the reservation flow.",
                     "Music",

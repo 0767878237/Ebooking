@@ -33,7 +33,12 @@ public class DemoAuthenticationFilter extends OncePerRequestFilter {
         if (rawUserId != null && !rawUserId.isBlank()) {
             try {
                 UUID userId = UUID.fromString(rawUserId.trim());
-                userAccountRepository.findById(userId).ifPresent(this::authenticate);
+                UserAccount user = userAccountRepository.findById(userId).orElse(null);
+                if (user == null || user.getDeletedAt() != null) {
+                    response.sendError(HttpServletResponse.SC_UNAUTHORIZED, "Unknown user.");
+                    return;
+                }
+                authenticate(user);
             } catch (IllegalArgumentException ignored) {
                 response.sendError(HttpServletResponse.SC_UNAUTHORIZED, "Invalid X-User-Id header.");
                 return;

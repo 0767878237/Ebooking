@@ -22,7 +22,9 @@ public class CorrelationIdFilter extends OncePerRequestFilter {
             HttpServletResponse response,
             FilterChain filterChain) throws ServletException, IOException {
         String correlationId = request.getHeader(HEADER);
-        if (correlationId == null || correlationId.isBlank()) {
+        if (correlationId == null || correlationId.isBlank()
+                || correlationId.length() > 80
+                || !correlationId.matches("[A-Za-z0-9._:-]+")) {
             correlationId = UUID.randomUUID().toString();
         }
         response.setHeader(HEADER, correlationId);

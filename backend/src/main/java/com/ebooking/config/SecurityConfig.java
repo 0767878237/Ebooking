@@ -33,15 +33,14 @@ public class SecurityConfig {
                                 "/error",
                                 "/api/ping",
                                 "/actuator/health",
-                                "/actuator/info",
-                                "/actuator/metrics",
-                                "/actuator/prometheus",
                                 "/v3/api-docs/**",
                                 "/swagger-ui/**",
                                 "/swagger-ui.html")
                         .permitAll()
                         .requestMatchers(HttpMethod.GET, "/api/catalog/**", "/api/events/**", "/api/shows/*/seats")
                         .permitAll()
+                        .requestMatchers("/actuator/info", "/actuator/metrics", "/actuator/prometheus")
+                        .hasRole("ADMIN")
                         .requestMatchers("/api/admin/**")
                         .hasAnyRole("ADMIN", "ORGANIZER")
                         .requestMatchers("/api/checkin/**")
