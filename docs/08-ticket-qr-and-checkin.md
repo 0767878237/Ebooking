@@ -3,9 +3,11 @@
 ## Phat hanh ve
 
 - Sau khi payment thanh cong, moi `booking_item` tao mot ticket `ISSUED`.
-- `ticketCode` dong vai tro QR payload MVP; database chi luu hash SHA-256.
+- `ticketCode` la public reference; QR payload duoc ky HMAC voi secret cua server
+  va database chi luu SHA-256 hash cua payload.
 - `GET /api/bookings/{bookingId}/tickets` tra ve ticket code, QR payload va
-  trang thai ve.
+  trang thai ve. Khong dung rieng `ticketCode` de check-in.
+- Ticket phat hanh truoc khi doi format QR can duoc phat hanh lai.
 - Phat hanh ticket idempotent: booking da co ticket thi khong tao trung.
 
 ## Check-in
@@ -14,8 +16,7 @@
 
 ```json
 {
-  "staffUserId": "staff-uuid",
-  "qrPayload": "TKT-...",
+  "qrPayload": "TKT-...<signed-payload>",
   "deviceId": "gate-01",
   "note": "main gate"
 }

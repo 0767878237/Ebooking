@@ -18,7 +18,7 @@
 
 ## API
 
-- `POST /api/bookings` tao booking tu `holdId`.
+- `POST /api/bookings` tao booking tu `holdId`; user hien tai duoc lay tu authentication context.
 - `GET /api/bookings/{bookingId}` xem booking va snapshot ghe.
 - `POST /api/bookings/{bookingId}/payment` thanh toan sandbox.
 - `POST /api/bookings/{bookingId}/cancel` huy booking dang `PENDING_PAYMENT`.

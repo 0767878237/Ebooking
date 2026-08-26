@@ -31,3 +31,7 @@ springdoc:
 logging:
   pattern:
     level: "%5p [corr:%X{correlationId:-}]"
+
+ebooking:
+  security:
+    qr-secret: ${EBOOKING_QR_SECRET:local-development-qr-secret-change-me-32chars}

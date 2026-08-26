@@ -37,9 +37,8 @@ Body tao hold:
 }
 ```
 
-`userId` la optional o giai doan nay; buoc identity/authentication se lay user tu access token thay vi request body.
+Identity duoc lay tu authentication context; khong gui `userId` trong request body.
 
 ## Du lieu demo
 
 Khi database rong, backend tao mot organizer, mot event, mot show va 8 ghe tai `Saigon Convention Hall`. Du lieu nay giup trinh dien API ngay sau khi chay Docker Compose.
-
