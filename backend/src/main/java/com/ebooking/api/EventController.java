@@ -2,6 +2,7 @@ package com.ebooking.api;
 
 import java.time.Instant;
 import java.util.ArrayList;
+import java.util.Map;
 import java.util.List;
 import java.util.UUID;
 
@@ -35,22 +36,32 @@ public class EventController {
     }
 
     @GetMapping
-    public List<EventResponse> findPublishedEvents() {
-        return eventRepository.findByPublishedTrueOrderByCreatedAtDesc().stream()
-                .map(event -> new EventResponse(
-                        event.getId(),
-                        event.getTitle(),
-                        event.getDescription(),
-                        event.getCategory(),
-                        showRepository.findByEventIdOrderByStartsAtAsc(event.getId()).stream()
-                                .map(show -> new ShowResponse(
-                                        show.getId(),
-                                        show.getVenue().getId(),
-                                        show.getVenue().getName(),
-                                        show.getStartsAt(),
-                                        show.getEndsAt()))
-                                .toList()))
-                .toList();
+    public PageResponse<EventResponse> findPublishedEvents(
+            @RequestParam(defaultValue = "0") int page,
+            @RequestParam(defaultValue = "20") int size) {
+        Pageable pageable = PageRequest.of(page, Math.min(size, 100), Sort.by("createdAt").descending());
+        var events = eventRepository.findByPublishedTrueAndDeletedAtIsNull(pageable);
+        List<UUID> eventIds = events.getContent().stream().map(event -> event.getId()).toList();
+        Map<UUID, List<ShowResponse>> showsByEvent = eventIds.isEmpty()
+                ? Map.of()
+                : showRepository.findByEventIdInAndDeletedAtIsNullOrderByEventIdAscStartsAtAsc(eventIds).stream()
+                        .map(show -> Map.entry(show.getEvent().getId(), new ShowResponse(
+                                show.getId(),
+                                show.getVenue().getId(),
+                                show.getVenue().getName(),
+                                show.getStartsAt(),
+                                show.getEndsAt())))
+                        .collect(java.util.stream.Collectors.groupingBy(
+                                Map.Entry::getKey,
+                                java.util.LinkedHashMap::new,
+                                java.util.stream.Collectors.mapping(Map.Entry::getValue, java.util.stream.Collectors.toList())));
+
+        return PageResponse.from(events.map(event -> new EventResponse(
+                event.getId(),
+                event.getTitle(),
+                event.getDescription(),
+                event.getCategory(),
+                showsByEvent.getOrDefault(event.getId(), List.of()))));
     }
 
     @GetMapping("/search")

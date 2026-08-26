@@ -3,6 +3,7 @@ package com.ebooking.api;
 import java.time.Instant;
 import java.util.UUID;
 
+import com.ebooking.config.CurrentUserService;
 import com.ebooking.modules.catalog.City;
 import com.ebooking.modules.catalog.CityRepository;
 import com.ebooking.modules.catalog.Venue;
@@ -45,6 +46,7 @@ public class AdminCatalogController {
     private final UserAccountRepository userAccountRepository;
     private final VenueSeatRepository venueSeatRepository;
     private final ShowSeatRepository showSeatRepository;
+    private final CurrentUserService currentUserService;
 
     public AdminCatalogController(
             CityRepository cityRepository,
@@ -54,7 +56,8 @@ public class AdminCatalogController {
             ShowRepository showRepository,
             UserAccountRepository userAccountRepository,
             VenueSeatRepository venueSeatRepository,
-            ShowSeatRepository showSeatRepository) {
+            ShowSeatRepository showSeatRepository,
+            CurrentUserService currentUserService) {
         this.cityRepository = cityRepository;
         this.venueRepository = venueRepository;
         this.genreRepository = genreRepository;
@@ -63,6 +66,7 @@ public class AdminCatalogController {
         this.userAccountRepository = userAccountRepository;
         this.venueSeatRepository = venueSeatRepository;
         this.showSeatRepository = showSeatRepository;
+        this.currentUserService = currentUserService;
     }
 
     @PostMapping("/cities")
@@ -77,6 +81,9 @@ public class AdminCatalogController {
     public VenueResponse createVenue(@Valid @RequestBody VenueRequest request) {
         City city = cityRepository.findById(request.cityId())
                 .orElseThrow(() -> new NotFoundException("City was not found."));
+        if (city.getDeletedAt() != null) {
+            throw new NotFoundException("City was not found.");
+        }
         Venue venue = venueRepository.save(new Venue(
                 UUID.randomUUID(),
                 city,
@@ -98,7 +105,7 @@ public class AdminCatalogController {
     @PostMapping("/events")
     @ResponseStatus(HttpStatus.CREATED)
     public EventResponse createEvent(@Valid @RequestBody EventRequest request) {
-        var organizer = userAccountRepository.findById(request.organizerId())
+        var organizer = userAccountRepository.findById(currentUserService.requireUserId())
                 .orElseThrow(() -> new NotFoundException("Organizer was not found."));
         Genre genre = genreRepository.findById(request.genreId())
                 .orElseThrow(() -> new NotFoundException("Genre was not found."));
@@ -121,6 +128,9 @@ public class AdminCatalogController {
                 .orElseThrow(() -> new NotFoundException("Event was not found."));
         Venue venue = venueRepository.findById(request.venueId())
                 .orElseThrow(() -> new NotFoundException("Venue was not found."));
+        if (event.getDeletedAt() != null || venue.getDeletedAt() != null) {
+            throw new NotFoundException("Event or venue was not found.");
+        }
         if (!request.endsAt().isAfter(request.startsAt())) {
             throw new IllegalArgumentException("Show end time must be after start time.");
         }
@@ -191,7 +201,6 @@ public class AdminCatalogController {
     }
 
     public record EventRequest(
-            @NotNull UUID organizerId,
             @NotNull UUID genreId,
             @NotBlank @Size(max = 200) String title,
             @NotBlank String description) {

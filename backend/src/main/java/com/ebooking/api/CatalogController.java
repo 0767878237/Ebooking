@@ -70,7 +70,7 @@ public class CatalogController {
      */
     @GetMapping("/venues/all")
     public List<VenueResponse> allVenues(@RequestParam UUID cityId) {
-        return venueRepository.findByCityIdOrderByNameAsc(cityId).stream()
+        return venueRepository.findByCityIdAndDeletedAtIsNullOrderByNameAsc(cityId).stream()
                 .map(venue -> new VenueResponse(
                         venue.getId(),
                         venue.getCity().getId(),

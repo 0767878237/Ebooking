@@ -4,6 +4,7 @@ import java.time.Instant;
 import java.util.List;
 import java.util.UUID;
 
+import com.ebooking.config.CurrentUserService;
 import com.ebooking.modules.inventory.InventoryQueryService;
 import com.ebooking.modules.inventory.SeatHoldService;
 import jakarta.validation.Valid;
@@ -25,10 +26,15 @@ public class InventoryController {
 
     private final InventoryQueryService inventoryQueryService;
     private final SeatHoldService seatHoldService;
+    private final CurrentUserService currentUserService;
 
-    public InventoryController(InventoryQueryService inventoryQueryService, SeatHoldService seatHoldService) {
+    public InventoryController(
+            InventoryQueryService inventoryQueryService,
+            SeatHoldService seatHoldService,
+            CurrentUserService currentUserService) {
         this.inventoryQueryService = inventoryQueryService;
         this.seatHoldService = seatHoldService;
+        this.currentUserService = currentUserService;
     }
 
     @GetMapping("/seats")
@@ -43,13 +49,12 @@ public class InventoryController {
             @RequestHeader(value = "Idempotency-Key", required = false) String idempotencyKey,
             @Valid @RequestBody CreateSeatHoldRequest request) {
         SeatHoldService.SeatHoldResult hold = seatHoldService.createHold(
-                showId, request.userId(), request.seatIds(), idempotencyKey);
+                showId, currentUserService.requireUserId(), request.seatIds(), idempotencyKey);
         return new SeatHoldResponse(hold.holdId(), hold.showId(), hold.expiresAt(), hold.seats());
     }
 
     public record CreateSeatHoldRequest(
-            UUID userId,
-            @NotEmpty @Size(max = 10) List<UUID> seatIds) {
+            @NotEmpty @Size(max = 10) List<@jakarta.validation.constraints.NotNull UUID> seatIds) {
     }
 
     public record SeatHoldResponse(

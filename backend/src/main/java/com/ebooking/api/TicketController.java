@@ -4,12 +4,12 @@ import java.time.Instant;
 import java.util.List;
 import java.util.UUID;
 
+import com.ebooking.config.CurrentUserService;
 import com.ebooking.modules.ticket.TicketScanResult;
 import com.ebooking.modules.ticket.TicketService;
 import com.ebooking.modules.ticket.TicketStatus;
 import jakarta.validation.Valid;
 import jakarta.validation.constraints.NotBlank;
-import jakarta.validation.constraints.NotNull;
 import jakarta.validation.constraints.Size;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PathVariable;
@@ -23,25 +23,28 @@ import org.springframework.web.bind.annotation.RestController;
 public class TicketController {
 
     private final TicketService ticketService;
+    private final CurrentUserService currentUserService;
 
-    public TicketController(TicketService ticketService) {
+    public TicketController(TicketService ticketService, CurrentUserService currentUserService) {
         this.ticketService = ticketService;
+        this.currentUserService = currentUserService;
     }
 
     @GetMapping("/bookings/{bookingId}/tickets")
     public List<TicketResponse> findByBooking(@PathVariable UUID bookingId) {
-        return ticketService.findByBooking(bookingId).stream().map(TicketResponse::from).toList();
+        return ticketService.findByBooking(bookingId, currentUserService.requireUserId()).stream()
+                .map(TicketResponse::from)
+                .toList();
     }
 
     @PostMapping("/checkin/scans")
     public ScanResponse scan(@Valid @RequestBody ScanRequest request) {
         TicketService.ScanResult result = ticketService.scan(
-                request.staffUserId(), request.qrPayload(), request.deviceId(), request.note());
+                currentUserService.requireUserId(), request.qrPayload(), request.deviceId(), request.note());
         return new ScanResponse(result.ticketCode(), result.result(), result.usedAt());
     }
 
     public record ScanRequest(
-            @NotNull UUID staffUserId,
             @NotBlank @Size(max = 128) String qrPayload,
             @Size(max = 120) String deviceId,
             @Size(max = 255) String note) {

@@ -5,6 +5,7 @@ import java.time.Instant;
 import java.util.List;
 import java.util.UUID;
 
+import com.ebooking.config.CurrentUserService;
 import com.ebooking.modules.booking.BookingService;
 import jakarta.validation.Valid;
 import jakarta.validation.constraints.NotBlank;
@@ -25,21 +26,24 @@ import org.springframework.web.bind.annotation.RestController;
 public class BookingController {
 
     private final BookingService bookingService;
+    private final CurrentUserService currentUserService;
 
-    public BookingController(BookingService bookingService) {
+    public BookingController(BookingService bookingService, CurrentUserService currentUserService) {
         this.bookingService = bookingService;
+        this.currentUserService = currentUserService;
     }
 
     @PostMapping
     @ResponseStatus(HttpStatus.CREATED)
     public BookingResponse create(@Valid @RequestBody CreateBookingRequest request) {
-        BookingService.BookingResult result = bookingService.createBooking(request.holdId(), request.userId());
+        BookingService.BookingResult result = bookingService.createBooking(
+                request.holdId(), currentUserService.requireUserId());
         return BookingResponse.from(result);
     }
 
     @GetMapping("/{bookingId}")
     public BookingResponse get(@PathVariable UUID bookingId) {
-        return BookingResponse.from(bookingService.getBooking(bookingId));
+        return BookingResponse.from(bookingService.getBooking(bookingId, currentUserService.requireUserId()));
     }
 
     @PostMapping("/{bookingId}/payment")
@@ -48,17 +52,17 @@ public class BookingController {
             @RequestHeader(value = "Idempotency-Key", required = false) String idempotencyKey,
             @Valid @RequestBody PaymentRequest request) {
         BookingService.PaymentResult result = bookingService.payBooking(
-                bookingId, request.paymentMethod(), idempotencyKey);
+                bookingId, currentUserService.requireUserId(), request.paymentMethod(), idempotencyKey);
         return PaymentResponse.from(result);
     }
 
     @PostMapping("/{bookingId}/cancel")
     @ResponseStatus(HttpStatus.NO_CONTENT)
     public void cancel(@PathVariable UUID bookingId) {
-        bookingService.cancelBooking(bookingId);
+        bookingService.cancelBooking(bookingId, currentUserService.requireUserId());
     }
 
-    public record CreateBookingRequest(@NotNull UUID holdId, UUID userId) {
+    public record CreateBookingRequest(@NotNull UUID holdId) {
     }
 
     public record PaymentRequest(@NotBlank @Size(max = 40) String paymentMethod) {
