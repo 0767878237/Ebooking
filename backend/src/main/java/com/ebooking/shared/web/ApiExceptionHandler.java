@@ -9,12 +9,21 @@ import org.springframework.http.ResponseEntity;
 import org.springframework.dao.DataIntegrityViolationException;
 import org.springframework.dao.PessimisticLockingFailureException;
 import org.springframework.orm.ObjectOptimisticLockingFailureException;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import org.springframework.web.bind.MethodArgumentNotValidException;
 import org.springframework.web.bind.annotation.ExceptionHandler;
 import org.springframework.web.bind.annotation.RestControllerAdvice;
 
 @RestControllerAdvice
 public class ApiExceptionHandler {
+
+    private static final Logger log = LoggerFactory.getLogger(ApiExceptionHandler.class);
+
+    @ExceptionHandler(UnauthorizedException.class)
+    ResponseEntity<Map<String, Object>> handleUnauthorized(UnauthorizedException exception) {
+        return error(HttpStatus.UNAUTHORIZED, exception.getMessage());
+    }
 
     @ExceptionHandler(NotFoundException.class)
     ResponseEntity<Map<String, Object>> handleNotFound(NotFoundException exception) {
@@ -41,7 +50,14 @@ public class ApiExceptionHandler {
             ObjectOptimisticLockingFailureException.class,
             DataIntegrityViolationException.class})
     ResponseEntity<Map<String, Object>> handleConcurrentWrite(RuntimeException exception) {
+        log.warn("Concurrent or integrity failure while handling request", exception);
         return error(HttpStatus.CONFLICT, "Resource changed while processing the request. Please retry.");
+    }
+
+    @ExceptionHandler(Exception.class)
+    ResponseEntity<Map<String, Object>> handleUnexpected(Exception exception) {
+        log.error("Unhandled API exception", exception);
+        return error(HttpStatus.INTERNAL_SERVER_ERROR, "Unexpected server error.");
     }
 
     @ExceptionHandler(MethodArgumentNotValidException.class)

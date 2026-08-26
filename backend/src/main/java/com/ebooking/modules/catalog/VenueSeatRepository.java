@@ -14,6 +14,7 @@ public interface VenueSeatRepository extends JpaRepository<VenueSeat, UUID> {
             from VenueSeat seat
             join fetch seat.section section
             where seat.venue.id = :venueId
+              and seat.deletedAt is null
             order by section.name, seat.rowName, seat.seatNumber
             """)
     List<VenueSeat> findByVenueIdOrderBySectionNameAscRowNameAscSeatNumberAsc(@Param("venueId") UUID venueId);

@@ -11,7 +11,7 @@ import org.springframework.data.jpa.repository.JpaRepository;
 public interface VenueRepository extends JpaRepository<Venue, UUID> {
 
     @EntityGraph(attributePaths = "city")
-    List<Venue> findByCityIdOrderByNameAsc(UUID cityId);
+    List<Venue> findByCityIdAndDeletedAtIsNullOrderByNameAsc(UUID cityId);
 
     @EntityGraph(attributePaths = "city")
     Page<Venue> findByDeletedAtIsNull(Pageable pageable);

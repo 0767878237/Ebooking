@@ -8,7 +8,6 @@ import java.util.List;
 import java.util.UUID;
 
 import com.ebooking.modules.identity.UserAccount;
-import com.ebooking.modules.identity.UserAccountRepository;
 import com.ebooking.modules.inventory.SeatHold;
 import com.ebooking.modules.inventory.SeatHoldRepository;
 import com.ebooking.modules.inventory.SeatHoldStatus;
@@ -22,6 +21,8 @@ import com.ebooking.modules.ticket.TicketService;
 import com.ebooking.shared.web.ConflictException;
 import com.ebooking.shared.web.NotFoundException;
 import org.springframework.beans.factory.annotation.Autowired;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import org.springframework.scheduling.annotation.Scheduled;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
@@ -29,13 +30,14 @@ import org.springframework.transaction.annotation.Transactional;
 @Service
 public class BookingService {
 
+    private static final Logger log = LoggerFactory.getLogger(BookingService.class);
+
     private final BookingRepository bookingRepository;
     private final BookingSeatRepository bookingSeatRepository;
     private final SeatHoldRepository seatHoldRepository;
     private final ShowSeatRepository showSeatRepository;
     private final PaymentRepository paymentRepository;
     private final PaymentProvider paymentProvider;
-    private final UserAccountRepository userAccountRepository;
     private final TicketService ticketService;
     private final Clock clock;
 
@@ -47,10 +49,9 @@ public class BookingService {
             ShowSeatRepository showSeatRepository,
             PaymentRepository paymentRepository,
             PaymentProvider paymentProvider,
-            UserAccountRepository userAccountRepository,
             TicketService ticketService) {
         this(bookingRepository, bookingSeatRepository, seatHoldRepository, showSeatRepository,
-                paymentRepository, paymentProvider, userAccountRepository, ticketService, Clock.systemUTC());
+                paymentRepository, paymentProvider, ticketService, Clock.systemUTC());
     }
 
     BookingService(
@@ -60,7 +61,6 @@ public class BookingService {
             ShowSeatRepository showSeatRepository,
             PaymentRepository paymentRepository,
             PaymentProvider paymentProvider,
-            UserAccountRepository userAccountRepository,
             TicketService ticketService,
             Clock clock) {
         this.bookingRepository = bookingRepository;
@@ -69,7 +69,6 @@ public class BookingService {
         this.showSeatRepository = showSeatRepository;
         this.paymentRepository = paymentRepository;
         this.paymentProvider = paymentProvider;
-        this.userAccountRepository = userAccountRepository;
         this.ticketService = ticketService;
         this.clock = clock;
     }
@@ -130,9 +129,10 @@ public class BookingService {
     }
 
     @Transactional
-    public PaymentResult payBooking(UUID bookingId, String paymentMethod, String idempotencyKey) {
+    public PaymentResult payBooking(UUID bookingId, UUID userId, String paymentMethod, String idempotencyKey) {
         Booking booking = bookingRepository.lockById(bookingId)
                 .orElseThrow(() -> new NotFoundException("Booking was not found."));
+        requireOwner(booking, userId);
         Instant now = clock.instant();
         if (booking.getStatus() == BookingStatus.PAID) {
             return PaymentResult.fromExisting(booking, paymentRepository.findByBookingId(bookingId).orElse(null));
@@ -179,11 +179,15 @@ public class BookingService {
             booking.markPaid();
             showSeats.forEach(ShowSeat::markSold);
             ticketService.issueForBooking(booking.getId());
+            log.info("Booking payment succeeded: bookingId={}, paymentProvider={}",
+                    bookingId, authorization.provider());
         } else {
             payment.fail();
             booking.cancel();
             booking.getHold().cancel();
             showSeats.forEach(ShowSeat::releaseToAvailable);
+            log.info("Booking payment declined: bookingId={}, paymentProvider={}",
+                    bookingId, authorization.provider());
         }
 
         paymentRepository.save(payment);
@@ -191,9 +195,10 @@ public class BookingService {
     }
 
     @Transactional
-    public void cancelBooking(UUID bookingId) {
+    public void cancelBooking(UUID bookingId, UUID userId) {
         Booking booking = bookingRepository.lockById(bookingId)
                 .orElseThrow(() -> new NotFoundException("Booking was not found."));
+        requireOwner(booking, userId);
         if (booking.getStatus() != BookingStatus.PENDING_PAYMENT) {
             throw new ConflictException("Only pending bookings can be cancelled in MVP.");
         }
@@ -209,22 +214,26 @@ public class BookingService {
     public int expirePendingBookings() {
         Instant now = clock.instant();
         int expired = 0;
-        for (Booking booking : bookingRepository.findByStatusAndExpiresAtLessThanEqual(
-                BookingStatus.PENDING_PAYMENT, now)) {
-            Booking locked = bookingRepository.lockById(booking.getId())
-                    .orElse(null);
-            if (locked == null || locked.getStatus() != BookingStatus.PENDING_PAYMENT) {
-                continue;
+        var page = org.springframework.data.domain.PageRequest.of(0, 500);
+        List<Booking> candidates;
+        do {
+            candidates = bookingRepository.findByStatusAndExpiresAtLessThanEqual(
+                    BookingStatus.PENDING_PAYMENT, now, page).getContent();
+            for (Booking booking : candidates) {
+                Booking locked = bookingRepository.lockById(booking.getId()).orElse(null);
+                if (locked != null && locked.getStatus() == BookingStatus.PENDING_PAYMENT) {
+                    expireBooking(locked);
+                    expired++;
+                }
             }
-            expireBooking(locked);
-            expired++;
-        }
+            bookingRepository.flush();
+        } while (candidates.size() == 500);
         return expired;
     }
 
-    @Transactional
-    public BookingResult getBooking(UUID bookingId) {
-        Booking booking = bookingRepository.findById(bookingId)
+    @Transactional(readOnly = true)
+    public BookingResult getBooking(UUID bookingId, UUID userId) {
+        Booking booking = bookingRepository.findOwnedById(bookingId, userId)
                 .orElseThrow(() -> new NotFoundException("Booking was not found."));
         return BookingResult.from(booking, bookingSeatRepository.findByBookingIdOrderBySeatLabelSnapshot(bookingId));
     }
@@ -245,15 +254,24 @@ public class BookingService {
         if (hold.getUser() != null) {
             return hold.getUser();
         }
-        if (userId == null) {
-            throw new ConflictException("User is required when the hold has no user.");
+        throw new ConflictException("Seat hold has no owner.");
+    }
+
+    private void requireOwner(Booking booking, UUID userId) {
+        if (userId == null || booking.getUser() == null || !userId.equals(booking.getUser().getId())) {
+            throw new NotFoundException("Booking was not found.");
         }
-        return userAccountRepository.findById(userId)
-                .orElseThrow(() -> new NotFoundException("User was not found."));
     }
 
     private static String normalizeIdempotencyKey(String value) {
-        return value == null || value.isBlank() ? null : value.trim();
+        if (value == null || value.isBlank()) {
+            return null;
+        }
+        String normalized = value.trim();
+        if (normalized.length() > 100) {
+            throw new IllegalArgumentException("Idempotency-Key must be at most 100 characters.");
+        }
+        return normalized;
     }
 
     public record BookingResult(
