@@ -9,7 +9,7 @@ Modular monolith cho nền tảng đặt vé sự kiện.
 
 ## Cau truc
 
-- `backend/`: Spring Boot 3.5.16 + Java 21
+- `backend/`: Spring Boot 3.5.16 + Java 25
 - `frontend/`: React 19 + Vite + TypeScript
 - `docs/`: mo ta pham vi, luong nghiep vu, kien truc
 - `docker-compose.yml`: chay local voi backend, PostgreSQL va frontend
