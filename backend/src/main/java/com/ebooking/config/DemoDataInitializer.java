@@ -84,10 +84,25 @@ public class DemoDataInitializer implements ApplicationRunner {
             }
 
             UserAccount organizer = userAccountRepository.save(new UserAccount(
-                    UUID.randomUUID(),
+                    UUID.fromString("00000000-0000-0000-0000-000000000002"),
                     "organizer@ebooking.local",
                     "E Booking Organizer",
                     UserRole.ORGANIZER));
+            userAccountRepository.save(new UserAccount(
+                    UUID.fromString("00000000-0000-0000-0000-000000000001"),
+                    "customer@ebooking.local",
+                    "E Booking Customer",
+                    UserRole.USER));
+            userAccountRepository.save(new UserAccount(
+                    UUID.fromString("00000000-0000-0000-0000-000000000003"),
+                    "staff@ebooking.local",
+                    "E Booking Staff",
+                    UserRole.CHECK_IN_STAFF));
+            userAccountRepository.save(new UserAccount(
+                    UUID.fromString("00000000-0000-0000-0000-000000000004"),
+                    "admin@ebooking.local",
+                    "E Booking Admin",
+                    UserRole.ADMIN));
             City city = cityRepository.save(new City(UUID.randomUUID(), "Ho Chi Minh City"));
             Venue venue = venueRepository.save(new Venue(
                     UUID.randomUUID(),

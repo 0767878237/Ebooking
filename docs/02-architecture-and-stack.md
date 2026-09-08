@@ -49,4 +49,3 @@
 - Actuator cung cap health va metrics.
 - OpenAPI cung cap API docs cho demo.
 - Cac mo-đun duoc tach ro de sau nay co the scale theo chuc nang neu can.
-
