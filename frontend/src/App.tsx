@@ -65,6 +65,19 @@ type Booking = {
   expiresAt?: string;
 };
 
+type BookingRecord = {
+  bookingId: string;
+  holdId: string;
+  status: string;
+  totalAmount: number;
+  seats: BookingSeat[];
+  eventTitle: string;
+  show: Show;
+  expiresAt?: string;
+  tickets: TicketData[];
+  paymentStatus?: string;
+};
+
 type TicketData = {
   ticketCode: string;
   qrPayload: string;
@@ -106,6 +119,7 @@ type IdentitySession = {
 
 // API is optional so the UI can still be previewed with the local demo data.
 const API = import.meta.env.VITE_API_BASE_URL ?? '';
+const BOOKING_HISTORY_PREFIX = 'ebooking-booking-history:';
 const IDENTITY_SESSIONS: Record<IdentityKey, IdentitySession> = {
   USER: {
     key: 'USER',
@@ -235,6 +249,29 @@ function formatDate(value: string) {
   }).format(new Date(value));
 }
 
+function readBookingHistory(identityKey: IdentityKey): BookingRecord[] {
+  if (typeof window === 'undefined') {
+    return [];
+  }
+
+  try {
+    const raw = window.localStorage.getItem(`${BOOKING_HISTORY_PREFIX}${identityKey}`);
+    return raw ? (JSON.parse(raw) as BookingRecord[]) : [];
+  } catch {
+    return [];
+  }
+}
+
+function mergeBookingHistory(records: BookingRecord[], next: BookingRecord) {
+  const index = records.findIndex((record) => record.bookingId === next.bookingId);
+  if (index === -1) {
+    return [next, ...records];
+  }
+  const merged = [...records];
+  merged[index] = { ...merged[index], ...next };
+  return merged;
+}
+
 // The catalog endpoint returns genre names, while event search expects slugs.
 // Keeping the conversion here makes the API contract explicit and easy to debug.
 function toGenreSlug(value: string) {
@@ -266,8 +303,26 @@ function App() {
   const [scanValue, setScanValue] = useState('');
   const [loading, setLoading] = useState(false);
   const [identityKey, setIdentityKey] = useState<IdentityKey>('USER');
+  const [bookingHistory, setBookingHistory] = useState<BookingRecord[]>([]);
   const identity = IDENTITY_SESSIONS[identityKey];
   const request = useMemo(() => createRequest(identity.userId), [identity.userId]);
+
+  // Booking history is kept per identity so the "Ve cua toi" screen can work
+  // without a backend list endpoint in the MVP.
+  useEffect(() => {
+    setBookingHistory(readBookingHistory(identityKey));
+  }, [identityKey]);
+
+  useEffect(() => {
+    try {
+      window.localStorage.setItem(
+        `${BOOKING_HISTORY_PREFIX}${identityKey}`,
+        JSON.stringify(bookingHistory),
+      );
+    } catch {
+      // Local storage is best-effort only.
+    }
+  }, [bookingHistory, identityKey]);
 
   // Load filter options once. These are public catalog APIs and do not require a
   // customer booking session, but using the same request client keeps identity
@@ -517,6 +572,7 @@ function App() {
           holdId: booking.holdId,
         };
         setBooking(currentBooking);
+        saveBookingRecord(currentBooking);
       }
 
       const payment = await request<{
@@ -535,7 +591,9 @@ function App() {
       // Backend cancels the booking and releases seats when the fake provider
       // declines payment. Only SUCCEEDED/PAID may continue to ticket issuance.
       if (payment.paymentStatus !== 'SUCCEEDED' || payment.bookingStatus !== 'PAID') {
-        setBooking({ ...currentBooking, status: payment.bookingStatus });
+        const failedBooking = { ...currentBooking, status: payment.bookingStatus };
+        setBooking(failedBooking);
+        saveBookingRecord(failedBooking, [], payment.paymentStatus);
         setNotice(`Thanh toan that bai: ${payment.paymentStatus}. Ghe da duoc mo lai.`);
         setSelectedSeats([]);
         if (selectedShow) {
@@ -546,8 +604,10 @@ function App() {
       }
 
       const issuedTickets = await request<TicketData[]>(`/api/bookings/${bookingId}/tickets`);
-      setBooking({ ...currentBooking, id: bookingId, bookingId, status: 'PAID', holdId: booking.holdId });
+      const paidBooking = { ...currentBooking, id: bookingId, bookingId, status: 'PAID', holdId: booking.holdId };
+      setBooking(paidBooking);
       setTickets(issuedTickets);
+      saveBookingRecord(paidBooking, issuedTickets, payment.paymentStatus);
       setStep('ticket');
     } catch (error) {
       setNotice(error instanceof Error ? error.message : 'Thanh toan that bai.');
@@ -578,6 +638,47 @@ function App() {
     setIdentityKey(nextIdentity);
     // A new identity should not inherit the previous booking/check-in state.
     resetFlow();
+  }
+
+  function saveBookingRecord(nextBooking: Booking, nextTickets: TicketData[] = [], paymentStatus?: string) {
+    if (!nextBooking.bookingId) {
+      return;
+    }
+
+    const record: BookingRecord = {
+      bookingId: nextBooking.bookingId,
+      holdId: nextBooking.holdId,
+      status: nextBooking.status,
+      totalAmount: nextBooking.totalAmount,
+      seats: nextBooking.seats,
+      eventTitle: nextBooking.eventTitle,
+      show: nextBooking.show,
+      expiresAt: nextBooking.expiresAt,
+      tickets: nextTickets,
+      paymentStatus,
+    };
+    setBookingHistory((current) => mergeBookingHistory(current, record));
+  }
+
+  async function cancelBooking(record: BookingRecord) {
+    if (record.status !== 'PENDING_PAYMENT') {
+      return;
+    }
+
+    setLoading(true);
+    try {
+      await request(`/api/bookings/${record.bookingId}/cancel`, { method: 'POST' });
+      const cancelled = { ...record, status: 'CANCELLED' };
+      setBookingHistory((current) => mergeBookingHistory(current, cancelled));
+      if (booking?.bookingId === record.bookingId) {
+        setBooking({ ...booking, status: 'CANCELLED' });
+      }
+      setNotice('Booking da duoc huy va ghe da duoc mo lai.');
+    } catch (error) {
+      setNotice(error instanceof Error ? error.message : 'Khong the huy booking.');
+    } finally {
+      setLoading(false);
+    }
   }
 
   return (
@@ -630,7 +731,13 @@ function App() {
           onDone={resetFlow}
         />
       )}
-      {view === 'bookings' && <BookingsPage booking={booking} onBrowse={() => navigate('browse')} />}
+      {view === 'bookings' && (
+        <BookingsPage
+          records={bookingHistory}
+          onBrowse={() => navigate('browse')}
+          onCancel={cancelBooking}
+        />
+      )}
       {view === 'checkin' && (
         <CheckinPage
           value={scanValue}
@@ -880,8 +987,23 @@ function TicketView({ booking, tickets, onDone }: { booking: Booking; tickets: T
   return <section className="content narrow"><div className="success-heading"><span><Check size={26} /></span><p className="eyebrow">03 / Hoan tat</p><h1>Ve cua ban da san sang</h1><p>Booking <strong>{booking.id}</strong> da duoc xac nhan.</p></div><div className="ticket-stack">{tickets.map((ticket) => <article className="ticket" key={ticket.ticketCode}><div className="ticket-main"><p className="eyebrow">{booking.eventTitle}</p><h2>{ticket.ticketCode}</h2><p>{formatDate(booking.show.startsAt)} · {booking.show.venueName}</p><strong className="ticket-seat">Ghe {booking.seats.find((seat) => seat.seatId === ticket.seatId)?.label}</strong></div><div className="qr"><QrCode size={92} /><small>{ticket.status}</small></div></article>)}</div><button className="primary" onClick={onDone}>Kham pha them event<ChevronRight size={17} /></button></section>;
 }
 
-function BookingsPage({ booking, onBrowse }: { booking: Booking | null; onBrowse: () => void }) {
+function BookingsPage({ records, onBrowse, onCancel }: { records: BookingRecord[]; onBrowse: () => void; onCancel: (record: BookingRecord) => void }) {
+  // These compatibility values keep the old empty-state markup stable while the
+  // history list below becomes the primary view.
+  const booking: Booking | null = null;
+  const onOpen = onBrowse;
+  if (records.length) {
+    return <section className="content standalone"><p className="eyebrow">Account</p><h1>Ve cua toi</h1><div className="booking-history">{records.map((record) => <HistoryBookingRow key={record.bookingId} record={record} onCancel={onCancel} />)}</div></section>;
+  }
   return <section className="content standalone"><p className="eyebrow">Account</p><h1>Ve cua toi</h1><div className="empty-history">{booking ? <BookingRow booking={booking} onOpen={onBrowse} /> : <><Ticket size={34} /><h3>Chua co booking nao</h3><p>Nhung ve ban dat se xuat hien o day.</p><button className="primary" onClick={onBrowse}>Kham pha event</button></>}</div></section>;
+}
+
+function BookingHistoryPage({ records, onBrowse, onCancel }: { records: BookingRecord[]; onBrowse: () => void; onCancel: (record: BookingRecord) => void }) {
+  return <BookingsPage records={records} onBrowse={onBrowse} onCancel={onCancel} />;
+}
+
+function HistoryBookingRow({ record, onCancel }: { record: BookingRecord; onCancel: (record: BookingRecord) => void }) {
+  return <article className="booking-row"><span className="summary-art small">{record.eventTitle.slice(0, 2).toUpperCase()}</span><span><b>{record.eventTitle}</b><small>{formatDate(record.show.startsAt)} - {record.seats.length} ghe - {record.status}</small></span><strong>{formatMoney(record.totalAmount)}</strong>{record.status === 'PENDING_PAYMENT' && <button className="secondary" onClick={() => onCancel(record)}>Huy</button>}<ChevronRight size={18} /></article>;
 }
 
 function BookingRow({ booking, onOpen }: { booking: Booking; onOpen: () => void }) {
