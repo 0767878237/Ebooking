@@ -55,6 +55,7 @@ type BookingSeat = {
 
 type Booking = {
   id: string;
+  holdId: string;
   status: string;
   totalAmount: number;
   seats: BookingSeat[];
@@ -389,6 +390,7 @@ function App() {
   // Derived values stay out of state to prevent stale search results and totals.
   const selectedSeatObjects = seats.filter((seat) => selectedSeats.includes(seat.seatId));
   const total = selectedSeatObjects.reduce((sum, seat) => sum + seat.price, 0);
+  const holdExpiresLabel = booking?.expiresAt ? formatDate(booking.expiresAt) : '';
 
   async function chooseEvent(event: Event) {
     // Selecting an event always starts a fresh seat-selection session.
@@ -396,6 +398,8 @@ function App() {
     setSelectedEvent(event);
     setSelectedShow(show);
     setSelectedSeats([]);
+    setBooking(null);
+    setTickets([]);
     setStep('seats');
 
     try {
@@ -409,6 +413,8 @@ function App() {
     // A new show has an independent seat map, so clear the prior selection first.
     setSelectedShow(show);
     setSelectedSeats([]);
+    setBooking(null);
+    setTickets([]);
 
     try {
       setSeats(await request<Seat[]>(`/api/shows/${show.id}/seats`));
@@ -455,6 +461,7 @@ function App() {
       );
       setBooking({
         id: hold.holdId,
+        holdId: hold.holdId,
         status: 'PENDING_PAYMENT',
         totalAmount: selectedSeatObjects.reduce((sum, seat) => sum + seat.price, 0),
         seats: hold.seats.map((seat) => ({
@@ -490,7 +497,7 @@ function App() {
         seats: BookingSeat[];
       }>('/api/bookings', {
         method: 'POST',
-        body: JSON.stringify({ holdId: booking.id }),
+        body: JSON.stringify({ holdId: booking.holdId }),
       });
 
       await request(`/api/bookings/${created.id}/payment`, {
@@ -499,7 +506,7 @@ function App() {
         body: JSON.stringify({ paymentMethod }),
       });
       const issuedTickets = await request<TicketData[]>(`/api/bookings/${created.id}/tickets`);
-      setBooking({ ...booking, ...created, status: 'PAID' });
+      setBooking({ ...booking, ...created, status: 'PAID', holdId: booking.holdId });
       setTickets(issuedTickets);
       setStep('ticket');
     } catch (error) {
@@ -575,6 +582,7 @@ function App() {
           onSeat={toggleSeat}
           onContinue={holdAndContinue}
           loading={loading}
+          holdClockLabel={holdExpiresLabel}
           paymentMethod={paymentMethod}
           onPaymentMethodChange={setPaymentMethod}
           onPay={pay}
@@ -692,6 +700,7 @@ function BrowseFlow(props: {
   onPaymentMethodChange: (value: string) => void;
   onPay: () => void;
   loading: boolean;
+  holdClockLabel: string;
   onBack: () => void;
   onDone: () => void;
 }) {
@@ -798,10 +807,10 @@ function EventCard({ event, index, onChoose }: { event: Event; index: number; on
 }
 
 // Seat-selection components keep the visual map and order summary in sync via props.
-function SeatStep({ event, selectedShow, seats, selectedSeats, onChooseShow, onSeat, onContinue }: { event: Event; selectedShow: Show | null; seats: Seat[]; selectedSeats: string[]; onChooseShow: (show: Show) => void; onSeat: (seat: Seat) => void; onContinue: () => void }) {
+function SeatStep({ event, selectedShow, seats, selectedSeats, onChooseShow, onSeat, onContinue, holdClockLabel }: { event: Event; selectedShow: Show | null; seats: Seat[]; selectedSeats: string[]; onChooseShow: (show: Show) => void; onSeat: (seat: Seat) => void; onContinue: () => void; holdClockLabel: string }) {
   const selectedSeatObjects = seats.filter((seat) => selectedSeats.includes(seat.seatId));
   const shows = event.shows.length ? event.shows : [demoShow];
-  return <section className="content"><div className="step-header"><div><p className="eyebrow">01 / Chon suat</p><h1>{event.title}</h1><p>{event.description}</p></div><StepIndicator /></div><div className="show-picker">{shows.map((show) => <button key={show.id} className={selectedShow?.id === show.id ? 'show-option selected' : 'show-option'} onClick={() => onChooseShow(show)}><Clock3 size={16} /><span>{formatDate(show.startsAt)}</span><small>{show.venueName}</small></button>)}</div><div className="seat-layout"><SeatMap seats={seats} selectedSeats={selectedSeats} onSeat={onSeat} /><SeatOrder selectedSeats={selectedSeatObjects} onContinue={onContinue} /></div></section>;
+  return <section className="content"><div className="step-header"><div><p className="eyebrow">01 / Chon suat</p><h1>{event.title}</h1><p>{event.description}</p></div><StepIndicator /></div><div className="show-picker">{shows.map((show) => <button key={show.id} className={selectedShow?.id === show.id ? 'show-option selected' : 'show-option'} onClick={() => onChooseShow(show)}><Clock3 size={16} /><span>{formatDate(show.startsAt)}</span><small>{show.venueName}</small></button>)}</div><div className="seat-layout"><SeatMap seats={seats} selectedSeats={selectedSeats} onSeat={onSeat} /><SeatOrder selectedSeats={selectedSeatObjects} onContinue={onContinue} holdClockLabel={holdClockLabel} /></div></section>;
 }
 
 function StepIndicator() {
@@ -812,14 +821,14 @@ function SeatMap({ seats, selectedSeats, onSeat }: { seats: Seat[]; selectedSeat
   return <div className="map-panel"><div className="stage">SAN KHAU</div><div className="seat-grid">{seats.map((seat) => <button key={seat.seatId} title={`${seat.section}-${seat.row}${seat.number}`} className={`seat ${seat.status.toLowerCase()} ${selectedSeats.includes(seat.seatId) ? 'selected' : ''}`} onClick={() => onSeat(seat)}><Armchair size={14} /><span>{seat.number}</span></button>)}</div><div className="legend"><span><i className="available" />Con trong</span><span><i className="selected-dot" />Dang chon</span><span><i className="sold" />Da ban</span></div></div>;
 }
 
-function SeatOrder({ selectedSeats, onContinue }: { selectedSeats: Seat[]; onContinue: () => void }) {
+function SeatOrder({ selectedSeats, onContinue, holdClockLabel }: { selectedSeats: Seat[]; onContinue: () => void; holdClockLabel: string }) {
   const total = selectedSeats.reduce((sum, seat) => sum + seat.price, 0);
-  return <aside className="order-card"><p className="eyebrow">Ghe cua ban</p><h2>{selectedSeats.length ? `${selectedSeats.length} ghe da chon` : 'Chua chon ghe'}</h2><div className="selected-list">{selectedSeats.map((seat) => <div key={seat.seatId}><span>{seat.section}-{seat.row}{seat.number}</span><b>{formatMoney(seat.price)}</b></div>)}</div><div className="order-total"><span>Tong cong</span><strong>{formatMoney(total)}</strong></div><button className="primary full" disabled={!selectedSeats.length} onClick={onContinue}>Giu ghe & tiep tuc<ChevronRight size={17} /></button><small className="fine-print"><ShieldCheck size={13} />Ghe duoc giu trong 5 phut</small></aside>;
+  return <aside className="order-card"><p className="eyebrow">Ghe cua ban</p><h2>{selectedSeats.length ? `${selectedSeats.length} ghe da chon` : 'Chua chon ghe'}</h2><div className="selected-list">{selectedSeats.map((seat) => <div key={seat.seatId}><span>{seat.section}-{seat.row}{seat.number}</span><b>{formatMoney(seat.price)}</b></div>)}</div><div className="order-total"><span>Tong cong</span><strong>{formatMoney(total)}</strong></div><button className="primary full" disabled={!selectedSeats.length} onClick={onContinue}>Giu ghe & tiep tuc<ChevronRight size={17} /></button><small className="fine-print"><ShieldCheck size={13} />{holdClockLabel ? `Ghe duoc giu con ${holdClockLabel}` : 'Ghe duoc giu trong 5 phut'}</small></aside>;
 }
 
 // Checkout only collects the sandbox outcome; booking creation and ticket issuance live in App.pay.
 function Checkout({ booking, paymentMethod, onPaymentMethodChange, onPay, loading }: { booking: Booking; paymentMethod: string; onPaymentMethodChange: (value: string) => void; onPay: () => void; loading: boolean }) {
-  return <section className="content narrow"><p className="eyebrow">02 / Thanh toan</p><h1>Xac nhan booking</h1><p className="intro">Kiem tra thong tin truoc khi thanh toan sandbox.</p><div className="checkout-grid"><div className="summary-card"><span className="summary-art">{booking.eventTitle.slice(0, 2).toUpperCase()}</span><h2>{booking.eventTitle}</h2><p>{formatDate(booking.show.startsAt)} · {booking.show.venueName}</p><div className="summary-seats">{booking.seats.map((seat) => <span key={seat.seatId}>{seat.label}</span>)}</div><div className="order-total"><span>Tong cong</span><strong>{formatMoney(booking.totalAmount)}</strong></div></div><div className="payment-card"><label>Payment sandbox</label><PaymentChoice selected={paymentMethod === 'SUCCESS'} icon={<CreditCard />} title="Thanh toan thanh cong" description="Gui SUCCESS cho fake provider" onClick={() => onPaymentMethodChange('SUCCESS')} /><PaymentChoice selected={paymentMethod === 'FAIL'} icon={<WalletCards />} title="Tu choi thanh toan" description="Gui FAIL de kiem tra loi" onClick={() => onPaymentMethodChange('FAIL')} /><button className="primary full" disabled={loading} onClick={onPay}>{loading ? 'Dang xu ly...' : `Thanh toan ${formatMoney(booking.totalAmount)}`}<ChevronRight size={17} /></button><small className="fine-print"><ShieldCheck size={13} />Giao dich an toan trong moi truong demo</small></div></div></section>;
+  return <section className="content narrow"><p className="eyebrow">02 / Thanh toan</p><h1>Xac nhan booking</h1><p className="intro">Kiem tra thong tin truoc khi thanh toan sandbox.</p><div className="checkout-grid"><div className="summary-card"><span className="summary-art">{booking.eventTitle.slice(0, 2).toUpperCase()}</span><h2>{booking.eventTitle}</h2><p>{formatDate(booking.show.startsAt)} · {booking.show.venueName}</p><div className="summary-seats">{booking.seats.map((seat) => <span key={seat.seatId}>{seat.label}</span>)}</div><div className="order-total"><span>Tong cong</span><strong>{formatMoney(booking.totalAmount)}</strong></div><small className="fine-print">{booking.expiresAt ? `Giu ghe den ${formatDate(booking.expiresAt)}` : 'Giu ghe trong 5 phut'}</small></div><div className="payment-card"><label>Payment sandbox</label><PaymentChoice selected={paymentMethod === 'SUCCESS'} icon={<CreditCard />} title="Thanh toan thanh cong" description="Gui SUCCESS cho fake provider" onClick={() => onPaymentMethodChange('SUCCESS')} /><PaymentChoice selected={paymentMethod === 'FAIL'} icon={<WalletCards />} title="Tu choi thanh toan" description="Gui FAIL de kiem tra loi" onClick={() => onPaymentMethodChange('FAIL')} /><button className="primary full" disabled={loading} onClick={onPay}>{loading ? 'Dang xu ly...' : `Thanh toan ${formatMoney(booking.totalAmount)}`}<ChevronRight size={17} /></button><small className="fine-print"><ShieldCheck size={13} />Giao dich an toan trong moi truong demo</small></div></div></section>;
 }
 
 function PaymentChoice({ selected, icon, title, description, onClick }: { selected: boolean; icon: ReactNode; title: string; description: string; onClick: () => void }) {
