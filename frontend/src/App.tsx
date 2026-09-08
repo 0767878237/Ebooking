@@ -1,133 +1,572 @@
-import { useState, type ReactNode } from 'react';
-import { Building2, CheckCircle2, CreditCard, ShieldCheck, Ticket, UserRound } from 'lucide-react';
+import { useEffect, useState, type ReactNode } from 'react';
+import {
+  Armchair,
+  ArrowLeft,
+  Check,
+  ChevronRight,
+  CircleHelp,
+  Clock3,
+  CreditCard,
+  LayoutDashboard,
+  MapPin,
+  QrCode,
+  Search,
+  ShieldCheck,
+  Ticket,
+  Users,
+  WalletCards,
+} from 'lucide-react';
 
-type Mode = 'USER' | 'ORGANIZER' | 'CHECK_IN_STAFF' | 'ADMIN';
+// Domain models mirror the API payloads used by the booking flow.
+// Keep these close to the API contract until the frontend is split into feature modules.
+type View = 'browse' | 'bookings' | 'checkin' | 'admin';
+type Step = 'browse' | 'seats' | 'checkout' | 'ticket';
 
-const modeMeta: Record<Mode, { label: string; icon: ReactNode; title: string; summary: string }> = {
-  USER: {
-    label: 'Khach dat ve',
-    icon: <UserRound size={16} />,
-    title: 'Dat ve su kien',
-    summary: 'Tim event, giu ghe, thanh toan sandbox va nhan QR ticket.',
-  },
-  ORGANIZER: {
-    label: 'To chuc',
-    icon: <Building2 size={16} />,
-    title: 'Quan ly su kien',
-    summary: 'Tao venue, mo show, quan sat booking va doi soat doanh thu.',
-  },
-  CHECK_IN_STAFF: {
-    label: 'Kiem ve',
-    icon: <Ticket size={16} />,
-    title: 'Quet ve tai cong',
-    summary: 'Xac thuc QR, danh dau da vao cua va chan ve da dung.',
-  },
-  ADMIN: {
-    label: 'Quan tri',
-    icon: <ShieldCheck size={16} />,
-    title: 'Dieu hanh he thong',
-    summary: 'Quan ly nguoi dung, vai tro, cau hinh va giam sat hoat dong.',
-  },
+type Show = {
+  id: string;
+  venueName: string;
+  startsAt: string;
+  endsAt: string;
 };
 
-const coreSteps = [
-  'Dang ky / dang nhap',
-  'Duyet thanh pho va venue',
-  'Tim event',
-  'Chon show va ghe',
-  'Giu ghe co thoi han',
-  'Thanh toan sandbox',
-  'Nhan ticket QR',
-  'Xem / huy booking',
-  'Quet ve tai cong',
+type Event = {
+  id: string;
+  title: string;
+  description: string;
+  category: string;
+  genre?: string;
+  shows: Show[];
+};
+
+type Seat = {
+  seatId: string;
+  section: string;
+  row: string;
+  number: number;
+  status: string;
+  price: number;
+};
+
+type BookingSeat = {
+  seatId: string;
+  label: string;
+  price: number;
+};
+
+type Booking = {
+  id: string;
+  status: string;
+  totalAmount: number;
+  seats: BookingSeat[];
+  eventTitle: string;
+  show: Show;
+  expiresAt?: string;
+};
+
+type TicketData = {
+  ticketCode: string;
+  qrPayload: string;
+  status: string;
+  seatId: string;
+};
+
+// API is optional so the UI can still be previewed with the local demo data.
+const API = import.meta.env.VITE_API_BASE_URL ?? '';
+const USER_ID = import.meta.env.VITE_DEMO_USER_ID ?? '00000000-0000-0000-0000-000000000001';
+const DEMO_USERS = {
+  USER: '00000000-0000-0000-0000-000000000001',
+  ORGANIZER: '00000000-0000-0000-0000-000000000002',
+  CHECK_IN_STAFF: '00000000-0000-0000-0000-000000000003',
+  ADMIN: '00000000-0000-0000-0000-000000000004',
+} as const;
+let activeUserId = USER_ID;
+
+// Demo data is a visual fallback when the backend is unavailable or has no catalog yet.
+// Do not use these identifiers as production defaults.
+const demoShow: Show = {
+  id: 'demo-show',
+  venueName: 'Theater Hoa Sen',
+  startsAt: '2026-09-12T19:30:00Z',
+  endsAt: '2026-09-12T22:00:00Z',
+};
+
+const demoEvents: Event[] = [
+  {
+    id: 'demo-event',
+    title: 'Neon Nights: Live in Saigon',
+    description: 'Mot dem nhac dien tu va indie am thanh bao quanh.',
+    category: 'Concert',
+    genre: 'Music',
+    shows: [demoShow],
+  },
+  {
+    id: 'demo-event-2',
+    title: 'The Art of Moving Images',
+    description: 'Trinh chieu nghe thuat thi giac trong khong gian immersive.',
+    category: 'Exhibition',
+    genre: 'Art',
+    shows: [
+      {
+        ...demoShow,
+        id: 'demo-show-2',
+        venueName: 'Factory Contemporary Arts Centre',
+        startsAt: '2026-09-20T18:00:00Z',
+      },
+    ],
+  },
+  {
+    id: 'demo-event-3',
+    title: 'Late Night Comedy Club',
+    description: 'Stand-up comedy va nhung cau chuyen rat doi thuong.',
+    category: 'Comedy',
+    genre: 'Comedy',
+    shows: [
+      {
+        ...demoShow,
+        id: 'demo-show-3',
+        venueName: 'The Workshop Coffee',
+        startsAt: '2026-09-28T20:00:00Z',
+      },
+    ],
+  },
 ];
 
+const demoSeats: Seat[] = Array.from({ length: 36 }, (_, index) => ({
+  seatId: `seat-${index + 1}`,
+  section: index < 18 ? 'A' : 'B',
+  row: String.fromCharCode(65 + Math.floor(index / 6)),
+  number: (index % 6) + 1,
+  status: [3, 8, 20, 30].includes(index) ? 'SOLD' : 'AVAILABLE',
+  price: 100000,
+}));
+
+// Shared API client. The selected demo role is sent on every request so team members can
+// exercise the same frontend flow as different backend actors without a login screen.
+async function request<T>(path: string, options?: RequestInit): Promise<T> {
+  const headers: Record<string, string> = {
+    'Content-Type': 'application/json',
+    ...(options?.headers as Record<string, string> | undefined),
+  };
+  if (USER_ID) {
+    headers['X-User-Id'] = activeUserId;
+  }
+  const response = await fetch(`${API}${path}`, {
+    ...options,
+    headers,
+  });
+
+  if (!response.ok) {
+    throw new Error(`API ${response.status}`);
+  }
+
+  return response.status === 204 ? (undefined as T) : response.json();
+}
+
+// Keep presentation formatting outside components to make UI output consistent.
+function formatMoney(value: number) {
+  return `${new Intl.NumberFormat('vi-VN').format(value)} VND`;
+}
+
+function formatDate(value: string) {
+  return new Intl.DateTimeFormat('vi-VN', {
+    weekday: 'short',
+    day: '2-digit',
+    month: '2-digit',
+    hour: '2-digit',
+    minute: '2-digit',
+  }).format(new Date(value));
+}
+
 function App() {
-  const [mode, setMode] = useState<Mode>('USER');
-  const meta = modeMeta[mode];
+  // App coordinates cross-screen state. Feature-specific rendering is delegated to
+  // the small components below; extract this state with its feature when the app grows.
+  const [view, setView] = useState<View>('browse');
+  const [step, setStep] = useState<Step>('browse');
+  const [events, setEvents] = useState<Event[]>(demoEvents);
+  const [query, setQuery] = useState('');
+  const [selectedEvent, setSelectedEvent] = useState<Event | null>(null);
+  const [selectedShow, setSelectedShow] = useState<Show | null>(null);
+  const [seats, setSeats] = useState<Seat[]>(demoSeats);
+  const [selectedSeats, setSelectedSeats] = useState<string[]>([]);
+  const [booking, setBooking] = useState<Booking | null>(null);
+  const [tickets, setTickets] = useState<TicketData[]>([]);
+  const [notice, setNotice] = useState('');
+  const [paymentMethod, setPaymentMethod] = useState('sandbox_card');
+  const [scanValue, setScanValue] = useState('');
+  const [loading, setLoading] = useState(false);
+  const [role, setRole] = useState<keyof typeof DEMO_USERS>('USER');
+
+  // Hydrate the catalog once. Existing demo events intentionally remain as a fallback
+  // if the API request fails or returns no events.
+  useEffect(() => {
+    request<{ content: Event[] }>('/api/events?size=20')
+      .then((data) => {
+        if (data.content?.length) {
+          setEvents(data.content);
+        }
+      })
+      .catch(() => undefined);
+  }, []);
+
+  // Derived values stay out of state to prevent stale search results and totals.
+  const filteredEvents = events.filter((event) =>
+    `${event.title} ${event.category} ${event.genre}`
+      .toLowerCase()
+      .includes(query.toLowerCase()),
+  );
+  const selectedSeatObjects = seats.filter((seat) => selectedSeats.includes(seat.seatId));
+  const total = selectedSeatObjects.reduce((sum, seat) => sum + seat.price, 0);
+
+  async function chooseEvent(event: Event) {
+    // Selecting an event always starts a fresh seat-selection session.
+    const show = event.shows[0] ?? demoShow;
+    setSelectedEvent(event);
+    setSelectedShow(show);
+    setSelectedSeats([]);
+    setStep('seats');
+
+    try {
+      setSeats(await request<Seat[]>(`/api/shows/${show.id}/seats`));
+    } catch (error) {
+      setNotice(error instanceof Error ? error.message : 'Khong tai duoc so do ghe.');
+    }
+  }
+
+  async function chooseShow(show: Show) {
+    // A new show has an independent seat map, so clear the prior selection first.
+    setSelectedShow(show);
+    setSelectedSeats([]);
+
+    try {
+      setSeats(await request<Seat[]>(`/api/shows/${show.id}/seats`));
+    } catch (error) {
+      setNotice(error instanceof Error ? error.message : 'Khong tai duoc so do ghe.');
+    }
+  }
+
+  function toggleSeat(seat: Seat) {
+    if (seat.status !== 'AVAILABLE') {
+      return;
+    }
+
+    setSelectedSeats((current) => {
+      if (current.includes(seat.seatId)) {
+        return current.filter((id) => id !== seat.seatId);
+      }
+
+      // The UI caps a single order at six seats; the backend remains the final authority.
+      return current.length < 6 ? [...current, seat.seatId] : current;
+    });
+  }
+
+  async function holdAndContinue() {
+    if (!selectedShow || !selectedSeats.length) {
+      return;
+    }
+
+    // A hold prevents another buyer from taking these seats before payment finishes.
+    setLoading(true);
+
+    try {
+      const hold = await request<{
+        holdId: string;
+        expiresAt: string;
+        seats: Array<{ seatId: string; label: string }>;
+      }>(
+        `/api/shows/${selectedShow.id}/holds`,
+        {
+          method: 'POST',
+          headers: { 'Idempotency-Key': `hold-${selectedShow.id}-${selectedSeats.slice().sort().join('-')}` },
+          body: JSON.stringify({ seatIds: selectedSeats }),
+        },
+      );
+      setBooking({
+        id: hold.holdId,
+        status: 'PENDING_PAYMENT',
+        totalAmount: selectedSeatObjects.reduce((sum, seat) => sum + seat.price, 0),
+        seats: hold.seats.map((seat) => ({
+          seatId: seat.seatId,
+          label: seat.label,
+          price: selectedSeatObjects.find((item) => item.seatId === seat.seatId)?.price ?? 0,
+        })),
+        eventTitle: selectedEvent?.title ?? 'Event',
+        show: selectedShow,
+        expiresAt: hold.expiresAt,
+      });
+      setStep('checkout');
+    } catch (error) {
+      setNotice(error instanceof Error ? error.message : 'Khong the giu ghe.');
+    } finally {
+      setLoading(false);
+    }
+  }
+
+  async function pay() {
+    if (!booking) {
+      return;
+    }
+
+    // Payment is a three-step contract: create booking from hold, submit payment,
+    // then retrieve the tickets issued by a successful payment.
+    setLoading(true);
+    try {
+      const created = await request<{
+        id: string;
+        status: string;
+        totalAmount: number;
+        seats: BookingSeat[];
+      }>('/api/bookings', {
+        method: 'POST',
+        body: JSON.stringify({ holdId: booking.id }),
+      });
+
+      await request(`/api/bookings/${created.id}/payment`, {
+        method: 'POST',
+        headers: { 'Idempotency-Key': `pay-${created.id}` },
+        body: JSON.stringify({ paymentMethod }),
+      });
+      const issuedTickets = await request<TicketData[]>(`/api/bookings/${created.id}/tickets`);
+      setBooking({ ...booking, ...created, status: 'PAID' });
+      setTickets(issuedTickets);
+      setStep('ticket');
+    } catch (error) {
+      setNotice(error instanceof Error ? error.message : 'Thanh toan that bai.');
+    } finally {
+      setLoading(false);
+    }
+  }
+
+  function resetFlow() {
+    // Preserve the loaded catalog and active role while clearing only the purchase flow.
+    setStep('browse');
+    setSelectedEvent(null);
+    setSelectedShow(null);
+    setBooking(null);
+    setTickets([]);
+    setSelectedSeats([]);
+    setNotice('');
+  }
+
+  function navigate(nextView: View) {
+    setView(nextView);
+    if (nextView === 'browse') {
+      resetFlow();
+    }
+  }
 
   return (
-    <main className="shell">
-      <header className="topbar">
-        <div>
-          <p className="eyebrow">E Booking</p>
-          <h1>Modular monolith cho dat ve su kien</h1>
-        </div>
-        <div className="status-pill">
-          <CheckCircle2 size={16} />
-          San sang cho buoc tiep theo
-        </div>
-      </header>
+    <main className="app-shell">
+      {/* Global shell and top-level routes. Each view owns its local layout below. */}
+      <Header view={view} role={role} onRoleChange={(nextRole) => { activeUserId = DEMO_USERS[nextRole]; setRole(nextRole); }} onNavigate={navigate} onHome={resetFlow} />
+      {notice && <Toast message={notice} onClose={() => setNotice('')} />}
 
-      <section className="modebar" aria-label="Role selector">
-        {(Object.keys(modeMeta) as Mode[]).map((item) => (
-          <button
-            key={item}
-            type="button"
-            className={item === mode ? 'mode active' : 'mode'}
-            onClick={() => setMode(item)}
-          >
-            {modeMeta[item].icon}
-            <span>{modeMeta[item].label}</span>
-          </button>
-        ))}
-      </section>
+      {view === 'browse' && (
+        <BrowseFlow
+          step={step}
+          query={query}
+          events={filteredEvents}
+          selectedEvent={selectedEvent}
+          selectedShow={selectedShow}
+          seats={seats}
+          selectedSeats={selectedSeats}
+          booking={booking}
+          tickets={tickets}
+          onQueryChange={setQuery}
+          onChooseEvent={chooseEvent}
+          onChooseShow={chooseShow}
+          onSeat={toggleSeat}
+          onContinue={holdAndContinue}
+          loading={loading}
+          paymentMethod={paymentMethod}
+          onPaymentMethodChange={setPaymentMethod}
+          onPay={pay}
+          onBack={() => (step === 'seats' ? resetFlow() : setStep(step === 'ticket' ? 'checkout' : 'seats'))}
+          onDone={resetFlow}
+        />
+      )}
+      {view === 'bookings' && <BookingsPage booking={booking} onBrowse={() => navigate('browse')} />}
+      {view === 'checkin' && (
+        <CheckinPage
+          value={scanValue}
+          onChange={setScanValue}
+          onSubmit={async () => {
+            if (!scanValue.trim()) {
+              setNotice('Hay nhap QR payload truoc.');
+              return;
+            }
+            try {
+              const result = await request<{ ticketCode: string | null; result: string }>('/api/checkin/scans', {
+                method: 'POST',
+                body: JSON.stringify({ qrPayload: scanValue.trim(), deviceId: 'web-gate-01' }),
+              });
+              setNotice(`${result.result}${result.ticketCode ? `: ${result.ticketCode}` : ''}`);
+            } catch (error) {
+              setNotice(error instanceof Error ? error.message : 'Khong the check-in.');
+            }
+          }}
+        />
+      )}
+      {view === 'admin' && <AdminPage />}
 
-      <section className="grid">
-        <article className="panel">
-          <p className="eyebrow">Vai tro hien tai</p>
-          <h2>{meta.title}</h2>
-          <p className="lede">{meta.summary}</p>
-        </article>
-
-        <article className="panel">
-          <p className="eyebrow">Luong chinh</p>
-          <ol className="flow">
-            {coreSteps.map((step) => (
-              <li key={step}>{step}</li>
-            ))}
-          </ol>
-        </article>
-
-        <article className="panel">
-          <p className="eyebrow">Nen tang</p>
-          <ul className="stack">
-            <li>Spring Boot 3.5.16 + Java 21</li>
-            <li>PostgreSQL + Flyway + JPA</li>
-            <li>Security + Actuator + OpenAPI</li>
-            <li>React 19 + TypeScript + Vite</li>
-          </ul>
-        </article>
-
-        <article className="panel">
-          <p className="eyebrow">Soat nhanh</p>
-          <div className="checklist">
-            <div>
-              <span className="label">Chong ban trung ghe</span>
-              <span className="value">Inventory reserved by hold window</span>
-            </div>
-            <div>
-              <span className="label">Modify booking</span>
-              <span className="value">Cancel then rebook in MVP</span>
-            </div>
-            <div>
-              <span className="label">Scale story</span>
-              <span className="value">Design for growth, prove with load tests</span>
-            </div>
-            <div>
-              <span className="label">Operations</span>
-              <span className="value">Health, metrics, docs</span>
-            </div>
-          </div>
-        </article>
-      </section>
-
-      <footer className="footer">
-        <CreditCard size={16} />
-        <span>Local stack: backend, PostgreSQL, frontend</span>
-      </footer>
+      <Footer />
     </main>
   );
+}
+
+// Global navigation and demo-role switcher.
+function Header({ view, role, onRoleChange, onNavigate, onHome }: { view: View; role: keyof typeof DEMO_USERS; onRoleChange: (role: keyof typeof DEMO_USERS) => void; onNavigate: (view: View) => void; onHome: () => void }) {
+  return (
+    <header className="topbar">
+      <button className="brand" onClick={onHome}>
+        <span className="brand-mark">e</span>
+        <span>
+          ebooking
+          <small>EVENTS / TICKETS / MOMENTS</small>
+        </span>
+      </button>
+      <nav className="main-nav" aria-label="Main navigation">
+        <NavButton active={view === 'browse'} icon={<Search size={17} />} onClick={() => onNavigate('browse')}>Kham pha</NavButton>
+        <NavButton active={view === 'bookings'} icon={<Ticket size={17} />} onClick={() => onNavigate('bookings')}>Ve cua toi</NavButton>
+        <NavButton active={view === 'checkin'} icon={<QrCode size={17} />} onClick={() => onNavigate('checkin')}>Check-in</NavButton>
+        <NavButton active={view === 'admin'} icon={<LayoutDashboard size={17} />} onClick={() => onNavigate('admin')}>Quan ly</NavButton>
+      </nav>
+      <label className="account"><span className="live-dot" />Demo account
+        <select value={role} onChange={(event) => onRoleChange(event.target.value as keyof typeof DEMO_USERS)}>
+          {Object.keys(DEMO_USERS).map((value) => <option key={value} value={value}>{value}</option>)}
+        </select>
+        <span className="avatar">{role[0]}</span>
+      </label>
+    </header>
+  );
+}
+
+function NavButton({ active, icon, onClick, children }: { active: boolean; icon: ReactNode; onClick: () => void; children: ReactNode }) {
+  return <button className={active ? 'active' : ''} onClick={onClick}>{icon}{children}</button>;
+}
+
+// BrowseFlow selects the correct screen for each stage of a single booking journey.
+function BrowseFlow(props: {
+  step: Step;
+  query: string;
+  events: Event[];
+  selectedEvent: Event | null;
+  selectedShow: Show | null;
+  seats: Seat[];
+  selectedSeats: string[];
+  booking: Booking | null;
+  tickets: TicketData[];
+  onQueryChange: (value: string) => void;
+  onChooseEvent: (event: Event) => void;
+  onChooseShow: (show: Show) => void;
+  onSeat: (seat: Seat) => void;
+  onContinue: () => void;
+  paymentMethod: string;
+  onPaymentMethodChange: (value: string) => void;
+  onPay: () => void;
+  loading: boolean;
+  onBack: () => void;
+  onDone: () => void;
+}) {
+  const { step } = props;
+
+  return (
+    <>
+      {step !== 'browse' && <button className="back-link" onClick={props.onBack}><ArrowLeft size={16} />Quay lai</button>}
+      {step === 'browse' && <BrowsePage query={props.query} events={props.events} onQueryChange={props.onQueryChange} onChooseEvent={props.onChooseEvent} />}
+      {step === 'seats' && props.selectedEvent && <SeatStep {...props} event={props.selectedEvent} />}
+      {step === 'checkout' && props.booking && <Checkout booking={props.booking} paymentMethod={props.paymentMethod} onPaymentMethodChange={props.onPaymentMethodChange} onPay={props.onPay} loading={props.loading} />}
+      {step === 'ticket' && props.booking && <TicketView booking={props.booking} tickets={props.tickets} onDone={props.onDone} />}
+    </>
+  );
+}
+
+function BrowsePage({ query, events, onQueryChange, onChooseEvent }: { query: string; events: Event[]; onQueryChange: (value: string) => void; onChooseEvent: (event: Event) => void }) {
+  return (
+    <>
+      <section className="hero">
+        <div>
+          <p className="eyebrow">Su kien dang dien ra</p>
+          <h1>Di de cam nhan.<br /><em>Dat de yen tam.</em></h1>
+          <p className="hero-copy">Tim kiem nhung trai nghiem dang cho ban trong thanh pho.</p>
+          <div className="search-box"><Search size={20} /><input value={query} onChange={(event) => onQueryChange(event.target.value)} placeholder="Tim event, nghe si, the loai..." /><kbd>⌘ K</kbd></div>
+        </div>
+        <div className="hero-card"><span>THIS WEEKEND</span><strong>Live sessions<br />under neon</strong><small>Ho Chi Minh City · 12 — 14 Sep</small><ChevronRight /></div>
+      </section>
+      <section className="content">
+        <div className="section-heading"><div><p className="eyebrow">Duyet theo tam trang</p><h2>Event phu hop voi ban</h2></div><div className="location"><MapPin size={16} />Ho Chi Minh City<ChevronRight size={15} /></div></div>
+        <div className="filter-row"><button className="filter active">Tat ca</button><button className="filter">Am nhac</button><button className="filter">Nghe thuat</button><button className="filter">Comedy</button><span className="result-count">{events.length} events</span></div>
+        <div className="event-grid">{events.map((event, index) => <EventCard key={event.id} event={event} index={index} onChoose={onChooseEvent} />)}</div>
+      </section>
+    </>
+  );
+}
+
+function EventCard({ event, index, onChoose }: { event: Event; index: number; onChoose: (event: Event) => void }) {
+  const show = event.shows[0] ?? demoShow;
+  return <article className="event-card" onClick={() => onChoose(event)}><div className={`event-art art-${index % 3}`}><span>{event.category}</span><strong>{index === 0 ? 'NN' : index === 1 ? 'AM' : 'LN'}</strong><small>{event.genre ?? event.category}</small></div><div className="event-info"><h3>{event.title}</h3><p>{event.description}</p><span className="event-date">{formatDate(show.startsAt)}</span><div className="event-meta"><span><MapPin size={14} />{show.venueName}</span><b>Gia theo so do ghe</b></div></div></article>;
+}
+
+// Seat-selection components keep the visual map and order summary in sync via props.
+function SeatStep({ event, selectedShow, seats, selectedSeats, onChooseShow, onSeat, onContinue }: { event: Event; selectedShow: Show | null; seats: Seat[]; selectedSeats: string[]; onChooseShow: (show: Show) => void; onSeat: (seat: Seat) => void; onContinue: () => void }) {
+  const selectedSeatObjects = seats.filter((seat) => selectedSeats.includes(seat.seatId));
+  const shows = event.shows.length ? event.shows : [demoShow];
+  return <section className="content"><div className="step-header"><div><p className="eyebrow">01 / Chon suat</p><h1>{event.title}</h1><p>{event.description}</p></div><StepIndicator /></div><div className="show-picker">{shows.map((show) => <button key={show.id} className={selectedShow?.id === show.id ? 'show-option selected' : 'show-option'} onClick={() => onChooseShow(show)}><Clock3 size={16} /><span>{formatDate(show.startsAt)}</span><small>{show.venueName}</small></button>)}</div><div className="seat-layout"><SeatMap seats={seats} selectedSeats={selectedSeats} onSeat={onSeat} /><SeatOrder selectedSeats={selectedSeatObjects} onContinue={onContinue} /></div></section>;
+}
+
+function StepIndicator() {
+  return <div className="stepper"><span className="done"><Check size={14} />Event</span><span className="current">Ghe</span><span>Thanh toan</span><span>Ve</span></div>;
+}
+
+function SeatMap({ seats, selectedSeats, onSeat }: { seats: Seat[]; selectedSeats: string[]; onSeat: (seat: Seat) => void }) {
+  return <div className="map-panel"><div className="stage">SAN KHAU</div><div className="seat-grid">{seats.map((seat) => <button key={seat.seatId} title={`${seat.section}-${seat.row}${seat.number}`} className={`seat ${seat.status.toLowerCase()} ${selectedSeats.includes(seat.seatId) ? 'selected' : ''}`} onClick={() => onSeat(seat)}><Armchair size={14} /><span>{seat.number}</span></button>)}</div><div className="legend"><span><i className="available" />Con trong</span><span><i className="selected-dot" />Dang chon</span><span><i className="sold" />Da ban</span></div></div>;
+}
+
+function SeatOrder({ selectedSeats, onContinue }: { selectedSeats: Seat[]; onContinue: () => void }) {
+  const total = selectedSeats.reduce((sum, seat) => sum + seat.price, 0);
+  return <aside className="order-card"><p className="eyebrow">Ghe cua ban</p><h2>{selectedSeats.length ? `${selectedSeats.length} ghe da chon` : 'Chua chon ghe'}</h2><div className="selected-list">{selectedSeats.map((seat) => <div key={seat.seatId}><span>{seat.section}-{seat.row}{seat.number}</span><b>{formatMoney(seat.price)}</b></div>)}</div><div className="order-total"><span>Tong cong</span><strong>{formatMoney(total)}</strong></div><button className="primary full" disabled={!selectedSeats.length} onClick={onContinue}>Giu ghe & tiep tuc<ChevronRight size={17} /></button><small className="fine-print"><ShieldCheck size={13} />Ghe duoc giu trong 5 phut</small></aside>;
+}
+
+// Checkout only collects the sandbox outcome; booking creation and ticket issuance live in App.pay.
+function Checkout({ booking, paymentMethod, onPaymentMethodChange, onPay, loading }: { booking: Booking; paymentMethod: string; onPaymentMethodChange: (value: string) => void; onPay: () => void; loading: boolean }) {
+  return <section className="content narrow"><p className="eyebrow">02 / Thanh toan</p><h1>Xac nhan booking</h1><p className="intro">Kiem tra thong tin truoc khi thanh toan sandbox.</p><div className="checkout-grid"><div className="summary-card"><span className="summary-art">{booking.eventTitle.slice(0, 2).toUpperCase()}</span><h2>{booking.eventTitle}</h2><p>{formatDate(booking.show.startsAt)} · {booking.show.venueName}</p><div className="summary-seats">{booking.seats.map((seat) => <span key={seat.seatId}>{seat.label}</span>)}</div><div className="order-total"><span>Tong cong</span><strong>{formatMoney(booking.totalAmount)}</strong></div></div><div className="payment-card"><label>Payment sandbox</label><PaymentChoice selected={paymentMethod === 'SUCCESS'} icon={<CreditCard />} title="Thanh toan thanh cong" description="Gui SUCCESS cho fake provider" onClick={() => onPaymentMethodChange('SUCCESS')} /><PaymentChoice selected={paymentMethod === 'FAIL'} icon={<WalletCards />} title="Tu choi thanh toan" description="Gui FAIL de kiem tra loi" onClick={() => onPaymentMethodChange('FAIL')} /><button className="primary full" disabled={loading} onClick={onPay}>{loading ? 'Dang xu ly...' : `Thanh toan ${formatMoney(booking.totalAmount)}`}<ChevronRight size={17} /></button><small className="fine-print"><ShieldCheck size={13} />Giao dich an toan trong moi truong demo</small></div></div></section>;
+}
+
+function PaymentChoice({ selected, icon, title, description, onClick }: { selected: boolean; icon: ReactNode; title: string; description: string; onClick: () => void }) {
+  return <button className={selected ? 'payment-choice selected' : 'payment-choice'} onClick={onClick}>{icon}<span><b>{title}</b><small>{description}</small></span><Check size={17} /></button>;
+}
+
+// Post-payment confirmation uses issued ticket data rather than reconstructing ticket codes locally.
+function TicketView({ booking, tickets, onDone }: { booking: Booking; tickets: TicketData[]; onDone: () => void }) {
+  return <section className="content narrow"><div className="success-heading"><span><Check size={26} /></span><p className="eyebrow">03 / Hoan tat</p><h1>Ve cua ban da san sang</h1><p>Booking <strong>{booking.id}</strong> da duoc xac nhan.</p></div><div className="ticket-stack">{tickets.map((ticket) => <article className="ticket" key={ticket.ticketCode}><div className="ticket-main"><p className="eyebrow">{booking.eventTitle}</p><h2>{ticket.ticketCode}</h2><p>{formatDate(booking.show.startsAt)} · {booking.show.venueName}</p><strong className="ticket-seat">Ghe {booking.seats.find((seat) => seat.seatId === ticket.seatId)?.label}</strong></div><div className="qr"><QrCode size={92} /><small>{ticket.status}</small></div></article>)}</div><button className="primary" onClick={onDone}>Kham pha them event<ChevronRight size={17} /></button></section>;
+}
+
+function BookingsPage({ booking, onBrowse }: { booking: Booking | null; onBrowse: () => void }) {
+  return <section className="content standalone"><p className="eyebrow">Account</p><h1>Ve cua toi</h1><div className="empty-history">{booking ? <BookingRow booking={booking} onOpen={onBrowse} /> : <><Ticket size={34} /><h3>Chua co booking nao</h3><p>Nhung ve ban dat se xuat hien o day.</p><button className="primary" onClick={onBrowse}>Kham pha event</button></>}</div></section>;
+}
+
+function BookingRow({ booking, onOpen }: { booking: Booking; onOpen: () => void }) {
+  return <button className="booking-row" onClick={onOpen}><span className="summary-art small">{booking.eventTitle.slice(0, 2).toUpperCase()}</span><span><b>{booking.eventTitle}</b><small>{formatDate(booking.show.startsAt)} · {booking.seats.length} ghe</small></span><strong>{formatMoney(booking.totalAmount)}</strong><ChevronRight size={18} /></button>;
+}
+
+// Staff and operations views are intentionally independent from the customer booking state.
+function CheckinPage({ value, onChange, onSubmit }: { value: string; onChange: (value: string) => void; onSubmit: () => void }) {
+  return <section className="content standalone"><p className="eyebrow">Staff workspace</p><h1>Check-in tai cong</h1><div className="checkin-panel"><div className="scanner"><QrCode size={100} strokeWidth={1} /><span>Camera sandbox</span></div><div><h2>Quet ma QR cua khach</h2><p>Nhap payload de mo phong viec quet ve tai cong.</p><input className="text-input" value={value} onChange={(event) => onChange(event.target.value)} placeholder="ebooking://ticket/..." /><button className="primary" onClick={onSubmit}>Xac nhan ve</button></div></div></section>;
+}
+
+function AdminPage() {
+  return <section className="content standalone"><p className="eyebrow">Operations</p><h1>Quan ly catalog</h1><div className="admin-grid"><AdminStat icon={<Ticket />} label="Events dang mo" value="24" /><AdminStat icon={<MapPin />} label="Venue" value="08" /><AdminStat icon={<Users />} label="Bookings hom nay" value="186" /></div><div className="admin-table"><div className="table-head"><span>Event</span><span>Status</span><span>Show tiep theo</span><span>Bookings</span></div>{demoEvents.map((event) => <div className="table-row" key={event.id}><strong>{event.title}</strong><span className="status live">Published</span><span>{formatDate(event.shows[0]?.startsAt ?? demoShow.startsAt)}</span><span>—</span></div>)}</div></section>;
+}
+
+function AdminStat({ icon, label, value }: { icon: ReactNode; label: string; value: string }) {
+  return <div className="admin-stat">{icon}<small>{label}</small><strong>{value}</strong></div>;
+}
+
+function Toast({ message, onClose }: { message: string; onClose: () => void }) {
+  return <div className="toast">{message}<button onClick={onClose}>x</button></div>;
+}
+
+function Footer() {
+  return <footer><span>© 2026 ebooking</span><span>Sandbox payment · API ready</span><span><CircleHelp size={14} />Ho tro</span></footer>;
 }
 
 export default App;
