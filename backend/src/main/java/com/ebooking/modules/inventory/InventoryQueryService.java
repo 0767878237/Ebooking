@@ -2,6 +2,7 @@ package com.ebooking.modules.inventory;
 
 import java.time.Clock;
 import java.time.Instant;
+import java.math.BigDecimal;
 import java.util.List;
 import java.util.UUID;
 
@@ -34,7 +35,8 @@ public class InventoryQueryService {
                         showSeat.getSeat().getSectionName(),
                         showSeat.getSeat().getRowName(),
                         showSeat.getSeat().getSeatNumber(),
-                        resolvedStatus(showSeat, now)))
+                        resolvedStatus(showSeat, now),
+                        showSeat.getPrice()))
                 .toList();
     }
 
@@ -47,6 +49,7 @@ public class InventoryQueryService {
             String section,
             String row,
             int number,
-            ShowSeatStatus status) {
+            ShowSeatStatus status,
+            BigDecimal price) {
     }
 }
