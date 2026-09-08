@@ -552,6 +552,7 @@ h2 { font-size: 28px; line-height: 1.1; letter-spacing: -1px; }
   color: #868b80;
   font: 11px var(--font-sans);
 }
+.scanner small { max-width: 180px; text-align: center; }
 .checkin-panel p { margin: 10px 0 20px; color: var(--color-muted); font: 13px var(--font-sans); }
 .text-input {
   display: block;
@@ -563,6 +564,27 @@ h2 { font-size: 28px; line-height: 1.1; letter-spacing: -1px; }
   background: var(--color-paper);
   font: 12px var(--font-sans);
 }
+.scan-result, .scan-history-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  margin-bottom: 12px;
+  padding: 12px 14px;
+  border: 1px solid var(--color-line);
+  background: var(--color-paper);
+  font: 12px var(--font-sans);
+}
+.scan-result.accepted { border-color: var(--color-success); color: var(--color-success); }
+.scan-result.already_used, .scan-result.cancelled { border-color: var(--color-warning); color: var(--color-warning); }
+.scan-result.invalid { border-color: var(--color-accent); color: var(--color-accent); }
+.scan-history {
+  display: grid;
+  gap: 8px;
+  margin-top: 22px;
+}
+.scan-history-row small { color: var(--color-muted); }
+.empty-scan { margin-top: 18px; color: var(--color-muted); font: 12px var(--font-sans); }
 .admin-grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 16px; margin: 38px 0; }
 .admin-stat { display: grid; gap: 8px; padding: 20px; border: 1px solid var(--color-line); background: var(--color-paper); }
 .admin-stat svg { color: var(--color-accent); }

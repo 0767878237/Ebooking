@@ -16,6 +16,7 @@ import {
   Users,
   WalletCards,
 } from 'lucide-react';
+import { BookingHistoryView, CheckinWorkspace, EnhancedTicketView } from './featureViews';
 
 // Domain models mirror the API payloads used by the booking flow.
 // Keep these close to the API contract until the frontend is split into feature modules.
@@ -85,6 +86,14 @@ type TicketData = {
   seatId: string;
 };
 
+type CheckinRecord = {
+  qrPayload: string;
+  ticketCode: string | null;
+  result: string;
+  usedAt?: string | null;
+  deviceId: string;
+};
+
 type PageResponse<T> = {
   content: T[];
   page: number;
@@ -120,6 +129,7 @@ type IdentitySession = {
 // API is optional so the UI can still be previewed with the local demo data.
 const API = import.meta.env.VITE_API_BASE_URL ?? '';
 const BOOKING_HISTORY_PREFIX = 'ebooking-booking-history:';
+const CHECKIN_HISTORY_PREFIX = 'ebooking-checkin-history:';
 const IDENTITY_SESSIONS: Record<IdentityKey, IdentitySession> = {
   USER: {
     key: 'USER',
@@ -272,6 +282,23 @@ function mergeBookingHistory(records: BookingRecord[], next: BookingRecord) {
   return merged;
 }
 
+function readCheckinHistory(identityKey: IdentityKey): CheckinRecord[] {
+  if (typeof window === 'undefined') {
+    return [];
+  }
+
+  try {
+    const raw = window.localStorage.getItem(`${CHECKIN_HISTORY_PREFIX}${identityKey}`);
+    return raw ? (JSON.parse(raw) as CheckinRecord[]) : [];
+  } catch {
+    return [];
+  }
+}
+
+function mergeCheckinHistory(records: CheckinRecord[], next: CheckinRecord) {
+  return [next, ...records].slice(0, 12);
+}
+
 // The catalog endpoint returns genre names, while event search expects slugs.
 // Keeping the conversion here makes the API contract explicit and easy to debug.
 function toGenreSlug(value: string) {
@@ -301,6 +328,9 @@ function App() {
   const [notice, setNotice] = useState('');
   const [paymentMethod, setPaymentMethod] = useState('sandbox_card');
   const [scanValue, setScanValue] = useState('');
+  const [checkinHistory, setCheckinHistory] = useState<CheckinRecord[]>([]);
+  const [lastCheckin, setLastCheckin] = useState<CheckinRecord | null>(null);
+  const [checkinLoading, setCheckinLoading] = useState(false);
   const [loading, setLoading] = useState(false);
   const [identityKey, setIdentityKey] = useState<IdentityKey>('USER');
   const [bookingHistory, setBookingHistory] = useState<BookingRecord[]>([]);
@@ -314,6 +344,12 @@ function App() {
   }, [identityKey]);
 
   useEffect(() => {
+    const history = readCheckinHistory(identityKey);
+    setCheckinHistory(history);
+    setLastCheckin(history[0] ?? null);
+  }, [identityKey]);
+
+  useEffect(() => {
     try {
       window.localStorage.setItem(
         `${BOOKING_HISTORY_PREFIX}${identityKey}`,
@@ -323,6 +359,17 @@ function App() {
       // Local storage is best-effort only.
     }
   }, [bookingHistory, identityKey]);
+
+  useEffect(() => {
+    try {
+      window.localStorage.setItem(
+        `${CHECKIN_HISTORY_PREFIX}${identityKey}`,
+        JSON.stringify(checkinHistory),
+      );
+    } catch {
+      // Check-in history is best-effort only.
+    }
+  }, [checkinHistory, identityKey]);
 
   // Load filter options once. These are public catalog APIs and do not require a
   // customer booking session, but using the same request client keeps identity
@@ -732,29 +779,46 @@ function App() {
         />
       )}
       {view === 'bookings' && (
-        <BookingsPage
+        <BookingHistoryView
           records={bookingHistory}
           onBrowse={() => navigate('browse')}
           onCancel={cancelBooking}
         />
       )}
       {view === 'checkin' && (
-        <CheckinPage
+        <CheckinWorkspace
+          identity={identity}
           value={scanValue}
           onChange={setScanValue}
+          lastCheckin={lastCheckin}
+          history={checkinHistory}
+          loading={checkinLoading}
           onSubmit={async () => {
             if (!scanValue.trim()) {
               setNotice('Hay nhap QR payload truoc.');
               return;
             }
             try {
-              const result = await request<{ ticketCode: string | null; result: string }>('/api/checkin/scans', {
+              setCheckinLoading(true);
+              const qrPayload = scanValue.trim();
+              const result = await request<{ ticketCode: string | null; result: string; usedAt?: string | null }>('/api/checkin/scans', {
                 method: 'POST',
-                body: JSON.stringify({ qrPayload: scanValue.trim(), deviceId: 'web-gate-01' }),
+                body: JSON.stringify({ qrPayload, deviceId: 'web-gate-01', note: 'web sandbox' }),
               });
               setNotice(`${result.result}${result.ticketCode ? `: ${result.ticketCode}` : ''}`);
+              const nextRecord: CheckinRecord = {
+                qrPayload,
+                ticketCode: result.ticketCode,
+                result: result.result,
+                usedAt: result.usedAt ?? null,
+                deviceId: 'web-gate-01',
+              };
+              setCheckinHistory((current) => mergeCheckinHistory(current, nextRecord));
+              setLastCheckin(nextRecord);
             } catch (error) {
               setNotice(error instanceof Error ? error.message : 'Khong the check-in.');
+            } finally {
+              setCheckinLoading(false);
             }
           }}
         />
