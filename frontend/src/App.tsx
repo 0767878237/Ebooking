@@ -70,6 +70,28 @@ type TicketData = {
   seatId: string;
 };
 
+type PageResponse<T> = {
+  content: T[];
+  page: number;
+  size: number;
+  totalElements: number;
+  totalPages: number;
+  first: boolean;
+  last: boolean;
+};
+
+type City = {
+  id: string;
+  name: string;
+};
+
+type Venue = {
+  id: string;
+  cityId: string;
+  name: string;
+  address: string;
+};
+
 type IdentityKey = 'USER' | 'ORGANIZER' | 'CHECK_IN_STAFF' | 'ADMIN';
 
 type IdentitySession = {
@@ -211,6 +233,12 @@ function formatDate(value: string) {
   }).format(new Date(value));
 }
 
+// The catalog endpoint returns genre names, while event search expects slugs.
+// Keeping the conversion here makes the API contract explicit and easy to debug.
+function toGenreSlug(value: string) {
+  return value.trim().toLowerCase().replace(/\s+/g, '-');
+}
+
 function App() {
   // App coordinates cross-screen state. Feature-specific rendering is delegated to
   // the small components below; extract this state with its feature when the app grows.
@@ -218,6 +246,13 @@ function App() {
   const [step, setStep] = useState<Step>('browse');
   const [events, setEvents] = useState<Event[]>(demoEvents);
   const [query, setQuery] = useState('');
+  const [cityId, setCityId] = useState('');
+  const [venueId, setVenueId] = useState('');
+  const [genre, setGenre] = useState('');
+  const [cities, setCities] = useState<City[]>([]);
+  const [venues, setVenues] = useState<Venue[]>([]);
+  const [genres, setGenres] = useState<string[]>([]);
+  const [catalogLoading, setCatalogLoading] = useState(false);
   const [selectedEvent, setSelectedEvent] = useState<Event | null>(null);
   const [selectedShow, setSelectedShow] = useState<Show | null>(null);
   const [seats, setSeats] = useState<Seat[]>(demoSeats);
@@ -232,24 +267,126 @@ function App() {
   const identity = IDENTITY_SESSIONS[identityKey];
   const request = useMemo(() => createRequest(identity.userId), [identity.userId]);
 
-  // Hydrate the catalog once. Existing demo events intentionally remain as a fallback
-  // if the API request fails or returns no events.
+  // Load filter options once. These are public catalog APIs and do not require a
+  // customer booking session, but using the same request client keeps identity
+  // propagation consistent across the whole frontend.
   useEffect(() => {
-    request<{ content: Event[] }>('/api/events?size=20')
-      .then((data) => {
-        if (data.content?.length) {
-          setEvents(data.content);
+    let cancelled = false;
+
+    async function loadCatalogOptions() {
+      try {
+        const [cityPage, genreList] = await Promise.all([
+          request<PageResponse<City>>('/api/catalog/cities?page=0&size=100'),
+          request<string[]>('/api/catalog/genres'),
+        ]);
+        if (!cancelled) {
+          setCities(cityPage.content);
+          setGenres(genreList);
         }
-      })
-      .catch(() => undefined);
-  }, []);
+      } catch {
+        // Demo events remain available when the backend is not running locally.
+      }
+    }
+
+    void loadCatalogOptions();
+    return () => {
+      cancelled = true;
+    };
+  }, [request]);
+
+  // Venue options depend on the selected city. Clearing the venue prevents an
+  // old venue from silently narrowing a newly selected city.
+  useEffect(() => {
+    let cancelled = false;
+
+    async function loadVenues() {
+      const params = new URLSearchParams({ page: '0', size: '100' });
+      if (cityId) {
+        params.set('cityId', cityId);
+      }
+
+      try {
+        const page = await request<PageResponse<Venue>>(`/api/catalog/venues?${params}`);
+        if (!cancelled) {
+          setVenues(page.content);
+        }
+      } catch {
+        if (!cancelled) {
+          setVenues([]);
+        }
+      }
+    }
+
+    void loadVenues();
+    return () => {
+      cancelled = true;
+    };
+  }, [cityId, request]);
+
+  // Search is debounced so typing a phrase does not issue one HTTP request per
+  // keystroke. Results are enriched with shows because the search endpoint returns
+  // event summaries while the seat flow needs the event's available shows.
+  useEffect(() => {
+    let cancelled = false;
+    const timer = window.setTimeout(async () => {
+      setCatalogLoading(true);
+
+      try {
+        const params = new URLSearchParams({
+          page: '0',
+          size: '20',
+          sort: 'createdAt,desc',
+        });
+        if (query.trim()) {
+          params.set('keyword', query.trim());
+        }
+        if (genre) {
+          params.set('genre', toGenreSlug(genre));
+        }
+        if (cityId) {
+          params.set('cityId', cityId);
+        }
+        if (venueId) {
+          params.set('venueId', venueId);
+        }
+
+        const result = await request<PageResponse<{
+          id: string;
+          title: string;
+          description: string;
+          category: string;
+          genre: string;
+        }>>(`/api/events/search?${params}`);
+
+        const enrichedEvents = await Promise.all(
+          result.content.map(async (event) => ({
+            ...event,
+            shows: await request<Show[]>(`/api/events/${event.id}/shows`),
+          })),
+        );
+
+        if (!cancelled) {
+          setEvents(enrichedEvents);
+        }
+      } catch {
+        // Keep the visual demo usable if the API is unavailable.
+        if (!cancelled && !query && !cityId && !venueId && !genre) {
+          setEvents(demoEvents);
+        }
+      } finally {
+        if (!cancelled) {
+          setCatalogLoading(false);
+        }
+      }
+    }, 250);
+
+    return () => {
+      cancelled = true;
+      window.clearTimeout(timer);
+    };
+  }, [cityId, genre, query, request, venueId]);
 
   // Derived values stay out of state to prevent stale search results and totals.
-  const filteredEvents = events.filter((event) =>
-    `${event.title} ${event.category} ${event.genre}`
-      .toLowerCase()
-      .includes(query.toLowerCase()),
-  );
   const selectedSeatObjects = seats.filter((seat) => selectedSeats.includes(seat.seatId));
   const total = selectedSeatObjects.reduce((sum, seat) => sum + seat.price, 0);
 
@@ -412,7 +549,14 @@ function App() {
         <BrowseFlow
           step={step}
           query={query}
-          events={filteredEvents}
+          events={events}
+          cities={cities}
+          venues={venues}
+          genres={genres}
+          cityId={cityId}
+          venueId={venueId}
+          genre={genre}
+          catalogLoading={catalogLoading}
           selectedEvent={selectedEvent}
           selectedShow={selectedShow}
           seats={seats}
@@ -420,6 +564,12 @@ function App() {
           booking={booking}
           tickets={tickets}
           onQueryChange={setQuery}
+          onCityChange={(value) => {
+            setCityId(value);
+            setVenueId('');
+          }}
+          onVenueChange={setVenueId}
+          onGenreChange={setGenre}
           onChooseEvent={chooseEvent}
           onChooseShow={chooseShow}
           onSeat={toggleSeat}
@@ -517,6 +667,13 @@ function BrowseFlow(props: {
   step: Step;
   query: string;
   events: Event[];
+  cities: City[];
+  venues: Venue[];
+  genres: string[];
+  cityId: string;
+  venueId: string;
+  genre: string;
+  catalogLoading: boolean;
   selectedEvent: Event | null;
   selectedShow: Show | null;
   seats: Seat[];
@@ -524,6 +681,9 @@ function BrowseFlow(props: {
   booking: Booking | null;
   tickets: TicketData[];
   onQueryChange: (value: string) => void;
+  onCityChange: (value: string) => void;
+  onVenueChange: (value: string) => void;
+  onGenreChange: (value: string) => void;
   onChooseEvent: (event: Event) => void;
   onChooseShow: (show: Show) => void;
   onSeat: (seat: Seat) => void;
@@ -540,7 +700,24 @@ function BrowseFlow(props: {
   return (
     <>
       {step !== 'browse' && <button className="back-link" onClick={props.onBack}><ArrowLeft size={16} />Quay lai</button>}
-      {step === 'browse' && <BrowsePage query={props.query} events={props.events} onQueryChange={props.onQueryChange} onChooseEvent={props.onChooseEvent} />}
+      {step === 'browse' && (
+        <BrowsePage
+          query={props.query}
+          events={props.events}
+          cities={props.cities}
+          venues={props.venues}
+          genres={props.genres}
+          cityId={props.cityId}
+          venueId={props.venueId}
+          genre={props.genre}
+          catalogLoading={props.catalogLoading}
+          onQueryChange={props.onQueryChange}
+          onCityChange={props.onCityChange}
+          onVenueChange={props.onVenueChange}
+          onGenreChange={props.onGenreChange}
+          onChooseEvent={props.onChooseEvent}
+        />
+      )}
       {step === 'seats' && props.selectedEvent && <SeatStep {...props} event={props.selectedEvent} />}
       {step === 'checkout' && props.booking && <Checkout booking={props.booking} paymentMethod={props.paymentMethod} onPaymentMethodChange={props.onPaymentMethodChange} onPay={props.onPay} loading={props.loading} />}
       {step === 'ticket' && props.booking && <TicketView booking={props.booking} tickets={props.tickets} onDone={props.onDone} />}
@@ -548,7 +725,37 @@ function BrowseFlow(props: {
   );
 }
 
-function BrowsePage({ query, events, onQueryChange, onChooseEvent }: { query: string; events: Event[]; onQueryChange: (value: string) => void; onChooseEvent: (event: Event) => void }) {
+function BrowsePage({
+  query,
+  events,
+  cities,
+  venues,
+  genres,
+  cityId,
+  venueId,
+  genre,
+  catalogLoading,
+  onQueryChange,
+  onCityChange,
+  onVenueChange,
+  onGenreChange,
+  onChooseEvent,
+}: {
+  query: string;
+  events: Event[];
+  cities: City[];
+  venues: Venue[];
+  genres: string[];
+  cityId: string;
+  venueId: string;
+  genre: string;
+  catalogLoading: boolean;
+  onQueryChange: (value: string) => void;
+  onCityChange: (value: string) => void;
+  onVenueChange: (value: string) => void;
+  onGenreChange: (value: string) => void;
+  onChooseEvent: (event: Event) => void;
+}) {
   return (
     <>
       <section className="hero">
@@ -562,7 +769,23 @@ function BrowsePage({ query, events, onQueryChange, onChooseEvent }: { query: st
       </section>
       <section className="content">
         <div className="section-heading"><div><p className="eyebrow">Duyet theo tam trang</p><h2>Event phu hop voi ban</h2></div><div className="location"><MapPin size={16} />Ho Chi Minh City<ChevronRight size={15} /></div></div>
-        <div className="filter-row"><button className="filter active">Tat ca</button><button className="filter">Am nhac</button><button className="filter">Nghe thuat</button><button className="filter">Comedy</button><span className="result-count">{events.length} events</span></div>
+        <div className="filter-row">
+          <select className="filter-select" value={cityId} onChange={(event) => onCityChange(event.target.value)}>
+            <option value="">Tat ca thanh pho</option>
+            {cities.map((city) => <option key={city.id} value={city.id}>{city.name}</option>)}
+          </select>
+          <select className="filter-select" value={venueId} onChange={(event) => onVenueChange(event.target.value)}>
+            <option value="">Tat ca dia diem</option>
+            {venues.map((venue) => <option key={venue.id} value={venue.id}>{venue.name}</option>)}
+          </select>
+          <select className="filter-select" value={genre} onChange={(event) => onGenreChange(event.target.value)}>
+            <option value="">Tat ca the loai</option>
+            {genres.map((value) => <option key={value} value={value}>{value}</option>)}
+          </select>
+          <span className="result-count">{catalogLoading ? 'Dang tai...' : `${events.length} events`}</span>
+        </div>
+        {catalogLoading && <p className="catalog-status">Dang cap nhat danh sach event...</p>}
+        {!catalogLoading && !events.length && <p className="catalog-status">Khong tim thay event phu hop.</p>}
         <div className="event-grid">{events.map((event, index) => <EventCard key={event.id} event={event} index={index} onChoose={onChooseEvent} />)}</div>
       </section>
     </>
