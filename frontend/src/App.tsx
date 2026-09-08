@@ -1,4 +1,4 @@
-import { useEffect, useState, type ReactNode } from 'react';
+import { useEffect, useMemo, useState, type ReactNode } from 'react';
 import {
   Armchair,
   ArrowLeft,
@@ -70,16 +70,48 @@ type TicketData = {
   seatId: string;
 };
 
+type IdentityKey = 'USER' | 'ORGANIZER' | 'CHECK_IN_STAFF' | 'ADMIN';
+
+type IdentitySession = {
+  key: IdentityKey;
+  userId: string;
+  role: IdentityKey;
+  displayName: string;
+  email: string;
+};
+
 // API is optional so the UI can still be previewed with the local demo data.
 const API = import.meta.env.VITE_API_BASE_URL ?? '';
-const USER_ID = import.meta.env.VITE_DEMO_USER_ID ?? '00000000-0000-0000-0000-000000000001';
-const DEMO_USERS = {
-  USER: '00000000-0000-0000-0000-000000000001',
-  ORGANIZER: '00000000-0000-0000-0000-000000000002',
-  CHECK_IN_STAFF: '00000000-0000-0000-0000-000000000003',
-  ADMIN: '00000000-0000-0000-0000-000000000004',
+const IDENTITY_SESSIONS: Record<IdentityKey, IdentitySession> = {
+  USER: {
+    key: 'USER',
+    userId: import.meta.env.VITE_DEMO_USER_ID ?? '00000000-0000-0000-0000-000000000001',
+    role: 'USER',
+    displayName: 'E Booking Customer',
+    email: 'customer@ebooking.local',
+  },
+  ORGANIZER: {
+    key: 'ORGANIZER',
+    userId: '00000000-0000-0000-0000-000000000002',
+    role: 'ORGANIZER',
+    displayName: 'E Booking Organizer',
+    email: 'organizer@ebooking.local',
+  },
+  CHECK_IN_STAFF: {
+    key: 'CHECK_IN_STAFF',
+    userId: '00000000-0000-0000-0000-000000000003',
+    role: 'CHECK_IN_STAFF',
+    displayName: 'E Booking Staff',
+    email: 'staff@ebooking.local',
+  },
+  ADMIN: {
+    key: 'ADMIN',
+    userId: '00000000-0000-0000-0000-000000000004',
+    role: 'ADMIN',
+    displayName: 'E Booking Admin',
+    email: 'admin@ebooking.local',
+  },
 } as const;
-let activeUserId = USER_ID;
 
 // Demo data is a visual fallback when the backend is unavailable or has no catalog yet.
 // Do not use these identifiers as production defaults.
@@ -140,26 +172,28 @@ const demoSeats: Seat[] = Array.from({ length: 36 }, (_, index) => ({
   price: 100000,
 }));
 
-// Shared API client. The selected demo role is sent on every request so team members can
-// exercise the same frontend flow as different backend actors without a login screen.
-async function request<T>(path: string, options?: RequestInit): Promise<T> {
-  const headers: Record<string, string> = {
-    'Content-Type': 'application/json',
-    ...(options?.headers as Record<string, string> | undefined),
+// Shared API client. The identity module currently authenticates through X-User-Id,
+// so every request must use the user selected in the active frontend session.
+function createRequest(userId: string) {
+  return async function request<T>(path: string, options?: RequestInit): Promise<T> {
+    const headers: Record<string, string> = {
+      'Content-Type': 'application/json',
+      ...(options?.headers as Record<string, string> | undefined),
+    };
+    if (userId) {
+      headers['X-User-Id'] = userId;
+    }
+    const response = await fetch(`${API}${path}`, {
+      ...options,
+      headers,
+    });
+
+    if (!response.ok) {
+      throw new Error(`API ${response.status}`);
+    }
+
+    return response.status === 204 ? (undefined as T) : response.json();
   };
-  if (USER_ID) {
-    headers['X-User-Id'] = activeUserId;
-  }
-  const response = await fetch(`${API}${path}`, {
-    ...options,
-    headers,
-  });
-
-  if (!response.ok) {
-    throw new Error(`API ${response.status}`);
-  }
-
-  return response.status === 204 ? (undefined as T) : response.json();
 }
 
 // Keep presentation formatting outside components to make UI output consistent.
@@ -194,7 +228,9 @@ function App() {
   const [paymentMethod, setPaymentMethod] = useState('sandbox_card');
   const [scanValue, setScanValue] = useState('');
   const [loading, setLoading] = useState(false);
-  const [role, setRole] = useState<keyof typeof DEMO_USERS>('USER');
+  const [identityKey, setIdentityKey] = useState<IdentityKey>('USER');
+  const identity = IDENTITY_SESSIONS[identityKey];
+  const request = useMemo(() => createRequest(identity.userId), [identity.userId]);
 
   // Hydrate the catalog once. Existing demo events intentionally remain as a fallback
   // if the API request fails or returns no events.
@@ -337,7 +373,7 @@ function App() {
   }
 
   function resetFlow() {
-    // Preserve the loaded catalog and active role while clearing only the purchase flow.
+    // Preserve the loaded catalog and active identity while clearing only the purchase flow.
     setStep('browse');
     setSelectedEvent(null);
     setSelectedShow(null);
@@ -354,10 +390,22 @@ function App() {
     }
   }
 
+  function switchIdentity(nextIdentity: IdentityKey) {
+    setIdentityKey(nextIdentity);
+    // A new identity should not inherit the previous booking/check-in state.
+    resetFlow();
+  }
+
   return (
     <main className="app-shell">
       {/* Global shell and top-level routes. Each view owns its local layout below. */}
-      <Header view={view} role={role} onRoleChange={(nextRole) => { activeUserId = DEMO_USERS[nextRole]; setRole(nextRole); }} onNavigate={navigate} onHome={resetFlow} />
+      <Header
+        view={view}
+        identity={identity}
+        onIdentityChange={switchIdentity}
+        onNavigate={navigate}
+        onHome={resetFlow}
+      />
       {notice && <Toast message={notice} onClose={() => setNotice('')} />}
 
       {view === 'browse' && (
@@ -413,8 +461,20 @@ function App() {
   );
 }
 
-// Global navigation and demo-role switcher.
-function Header({ view, role, onRoleChange, onNavigate, onHome }: { view: View; role: keyof typeof DEMO_USERS; onRoleChange: (role: keyof typeof DEMO_USERS) => void; onNavigate: (view: View) => void; onHome: () => void }) {
+// Global navigation and local identity-session switcher.
+function Header({
+  view,
+  identity,
+  onIdentityChange,
+  onNavigate,
+  onHome,
+}: {
+  view: View;
+  identity: IdentitySession;
+  onIdentityChange: (role: IdentityKey) => void;
+  onNavigate: (view: View) => void;
+  onHome: () => void;
+}) {
   return (
     <header className="topbar">
       <button className="brand" onClick={onHome}>
@@ -430,11 +490,19 @@ function Header({ view, role, onRoleChange, onNavigate, onHome }: { view: View; 
         <NavButton active={view === 'checkin'} icon={<QrCode size={17} />} onClick={() => onNavigate('checkin')}>Check-in</NavButton>
         <NavButton active={view === 'admin'} icon={<LayoutDashboard size={17} />} onClick={() => onNavigate('admin')}>Quan ly</NavButton>
       </nav>
-      <label className="account"><span className="live-dot" />Demo account
-        <select value={role} onChange={(event) => onRoleChange(event.target.value as keyof typeof DEMO_USERS)}>
-          {Object.keys(DEMO_USERS).map((value) => <option key={value} value={value}>{value}</option>)}
+      <label className="account">
+        <span className="live-dot" />
+        Identity
+        <select value={identity.key} onChange={(event) => onIdentityChange(event.target.value as IdentityKey)}>
+          {Object.values(IDENTITY_SESSIONS).map((session) => (
+            <option key={session.key} value={session.key}>
+              {session.displayName}
+            </option>
+          ))}
         </select>
-        <span className="avatar">{role[0]}</span>
+        <span className="avatar" title={`${identity.displayName} - ${identity.role}`}>
+          {identity.role[0]}
+        </span>
       </label>
     </header>
   );
