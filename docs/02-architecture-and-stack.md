@@ -9,7 +9,7 @@
 
 ## Stack
 
-- Java 25
+- Java 21
 - Spring Boot 3.5.16
 - Maven
 - Spring Web
@@ -49,4 +49,3 @@
 - Actuator cung cap health va metrics.
 - OpenAPI cung cap API docs cho demo.
 - Cac mo-đun duoc tach ro de sau nay co the scale theo chuc nang neu can.
-
