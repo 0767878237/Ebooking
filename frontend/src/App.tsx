@@ -56,6 +56,7 @@ type BookingSeat = {
 type Booking = {
   id: string;
   holdId: string;
+  bookingId?: string;
   status: string;
   totalAmount: number;
   seats: BookingSeat[];
@@ -490,23 +491,62 @@ function App() {
     // then retrieve the tickets issued by a successful payment.
     setLoading(true);
     try {
-      const created = await request<{
-        id: string;
-        status: string;
-        totalAmount: number;
-        seats: BookingSeat[];
-      }>('/api/bookings', {
-        method: 'POST',
-        body: JSON.stringify({ holdId: booking.holdId }),
-      });
+      // Keep the created booking id in state before payment. If the payment
+      // request is retried after a network error, we must not create a second
+      // booking from the same converted hold.
+      let bookingId = booking.bookingId;
+      let currentBooking = booking;
 
-      await request(`/api/bookings/${created.id}/payment`, {
+      if (!bookingId) {
+        const created = await request<{
+          id: string;
+          status: string;
+          totalAmount: number;
+          expiresAt?: string;
+          seats: BookingSeat[];
+        }>('/api/bookings', {
+          method: 'POST',
+          body: JSON.stringify({ holdId: booking.holdId }),
+        });
+        bookingId = created.id;
+        currentBooking = {
+          ...booking,
+          ...created,
+          id: created.id,
+          bookingId: created.id,
+          holdId: booking.holdId,
+        };
+        setBooking(currentBooking);
+      }
+
+      const payment = await request<{
+        bookingId: string;
+        bookingStatus: string;
+        paymentStatus: string;
+        provider: string;
+        providerReference: string;
+        amount: number;
+      }>(`/api/bookings/${bookingId}/payment`, {
         method: 'POST',
-        headers: { 'Idempotency-Key': `pay-${created.id}` },
+        headers: { 'Idempotency-Key': `pay-${bookingId}` },
         body: JSON.stringify({ paymentMethod }),
       });
-      const issuedTickets = await request<TicketData[]>(`/api/bookings/${created.id}/tickets`);
-      setBooking({ ...booking, ...created, status: 'PAID', holdId: booking.holdId });
+
+      // Backend cancels the booking and releases seats when the fake provider
+      // declines payment. Only SUCCEEDED/PAID may continue to ticket issuance.
+      if (payment.paymentStatus !== 'SUCCEEDED' || payment.bookingStatus !== 'PAID') {
+        setBooking({ ...currentBooking, status: payment.bookingStatus });
+        setNotice(`Thanh toan that bai: ${payment.paymentStatus}. Ghe da duoc mo lai.`);
+        setSelectedSeats([]);
+        if (selectedShow) {
+          setSeats(await request<Seat[]>(`/api/shows/${selectedShow.id}/seats`));
+        }
+        setStep('seats');
+        return;
+      }
+
+      const issuedTickets = await request<TicketData[]>(`/api/bookings/${bookingId}/tickets`);
+      setBooking({ ...currentBooking, id: bookingId, bookingId, status: 'PAID', holdId: booking.holdId });
       setTickets(issuedTickets);
       setStep('ticket');
     } catch (error) {
