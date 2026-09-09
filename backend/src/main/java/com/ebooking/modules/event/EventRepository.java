@@ -15,5 +15,11 @@ public interface EventRepository extends JpaRepository<Event, UUID>, JpaSpecific
     Page<Event> findByPublishedTrueAndDeletedAtIsNull(Pageable pageable);
 
     @EntityGraph(attributePaths = "genre")
+    Page<Event> findByDeletedAtIsNull(Pageable pageable);
+
+    @EntityGraph(attributePaths = "genre")
+    Page<Event> findByOrganizer_IdAndDeletedAtIsNull(UUID organizerId, Pageable pageable);
+
+    @EntityGraph(attributePaths = "genre")
     Page<Event> findAll(Specification<Event> specification, Pageable pageable);
 }

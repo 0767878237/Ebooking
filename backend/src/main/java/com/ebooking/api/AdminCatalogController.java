@@ -1,6 +1,8 @@
 package com.ebooking.api;
 
 import java.time.Instant;
+import java.util.List;
+import java.util.Map;
 import java.util.UUID;
 
 import com.ebooking.config.CurrentUserService;
@@ -15,21 +17,28 @@ import com.ebooking.modules.event.Genre;
 import com.ebooking.modules.event.GenreRepository;
 import com.ebooking.modules.event.Show;
 import com.ebooking.modules.event.ShowRepository;
+import com.ebooking.modules.identity.UserRole;
 import com.ebooking.modules.identity.UserAccountRepository;
 import com.ebooking.modules.inventory.ShowSeat;
 import com.ebooking.modules.inventory.ShowSeatRepository;
 import com.ebooking.shared.web.NotFoundException;
+import com.ebooking.shared.web.PageResponse;
 import jakarta.validation.Valid;
 import jakarta.validation.constraints.NotBlank;
 import jakarta.validation.constraints.NotNull;
 import jakarta.validation.constraints.Size;
+import org.springframework.data.domain.PageRequest;
+import org.springframework.data.domain.Pageable;
+import org.springframework.data.domain.Sort;
 import org.springframework.http.HttpStatus;
 import org.springframework.web.bind.annotation.DeleteMapping;
+import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PatchMapping;
 import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestMapping;
+import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.ResponseStatus;
 import org.springframework.web.bind.annotation.RestController;
 import org.springframework.transaction.annotation.Transactional;
@@ -67,6 +76,42 @@ public class AdminCatalogController {
         this.venueSeatRepository = venueSeatRepository;
         this.showSeatRepository = showSeatRepository;
         this.currentUserService = currentUserService;
+    }
+
+    @GetMapping("/events")
+    public PageResponse<AdminEventResponse> events(
+            @RequestParam(defaultValue = "0") int page,
+            @RequestParam(defaultValue = "100") int size) {
+        var currentUser = userAccountRepository.findById(currentUserService.requireUserId())
+                .orElseThrow(() -> new NotFoundException("Current user was not found."));
+        Pageable pageable = PageRequest.of(page, Math.min(size, 100), Sort.by("createdAt").descending());
+        var eventPage = currentUser.getRole() == UserRole.ADMIN
+                ? eventRepository.findByDeletedAtIsNull(pageable)
+                : eventRepository.findByOrganizer_IdAndDeletedAtIsNull(currentUser.getId(), pageable);
+        List<UUID> eventIds = eventPage.getContent().stream().map(Event::getId).toList();
+        Map<UUID, List<AdminShowSummary>> showsByEvent = eventIds.isEmpty()
+                ? Map.of()
+                : showRepository.findByEventIdInAndDeletedAtIsNullOrderByEventIdAscStartsAtAsc(eventIds).stream()
+                        .map(show -> Map.entry(show.getEvent().getId(), new AdminShowSummary(
+                                show.getId(),
+                                show.getVenue().getId(),
+                                show.getVenue().getName(),
+                                show.getStartsAt(),
+                                show.getEndsAt())))
+                        .collect(java.util.stream.Collectors.groupingBy(
+                                Map.Entry::getKey,
+                                java.util.LinkedHashMap::new,
+                                java.util.stream.Collectors.mapping(
+                                        Map.Entry::getValue,
+                                        java.util.stream.Collectors.toList())));
+
+        return PageResponse.from(eventPage.map(event -> new AdminEventResponse(
+                event.getId(),
+                event.getTitle(),
+                event.getDescription(),
+                event.getCategory(),
+                event.isPublished(),
+                showsByEvent.getOrDefault(event.getId(), List.of()))));
     }
 
     @PostMapping("/cities")
@@ -229,5 +274,17 @@ public class AdminCatalogController {
     }
 
     public record ShowResponse(UUID id, UUID eventId, UUID venueId, Instant startsAt, Instant endsAt) {
+    }
+
+    public record AdminEventResponse(
+            UUID id,
+            String title,
+            String description,
+            String category,
+            boolean published,
+            List<AdminShowSummary> shows) {
+    }
+
+    public record AdminShowSummary(UUID id, UUID venueId, String venueName, Instant startsAt, Instant endsAt) {
     }
 }

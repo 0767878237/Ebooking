@@ -31,6 +31,7 @@ cd frontend && npm install && npm run dev
 
 - Web: `http://localhost:3000`
 - API health: `http://localhost:8080/actuator/health`
+- Frontend API proxy: `http://localhost:3000/api/...`
 - OpenAPI: `http://localhost:8080/swagger-ui.html`
 - Seat hold flow: `docs/03-inventory-and-seat-holds.md`
 - Data model and migrations: `docs/04-data-model-and-migrations.md`

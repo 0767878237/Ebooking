@@ -32,6 +32,7 @@ public class SecurityConfig {
                                 "/",
                                 "/error",
                                 "/api/ping",
+                                "/api/identity/demo-users",
                                 "/actuator/health",
                                 "/v3/api-docs/**",
                                 "/swagger-ui/**",
