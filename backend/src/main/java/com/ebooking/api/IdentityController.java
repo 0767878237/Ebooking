@@ -1,8 +1,23 @@
 package com.ebooking.api;
 
 import java.util.List;
+import java.util.Locale;
+import java.util.UUID;
 
 import com.ebooking.modules.identity.UserAccountRepository;
+import com.ebooking.modules.identity.UserAccount;
+import com.ebooking.modules.identity.UserRole;
+import com.ebooking.shared.web.ConflictException;
+import com.ebooking.shared.web.UnauthorizedException;
+import jakarta.validation.Valid;
+import jakarta.validation.constraints.Email;
+import jakarta.validation.constraints.NotBlank;
+import jakarta.validation.constraints.Size;
+import org.springframework.http.HttpStatus;
+import org.springframework.security.crypto.password.PasswordEncoder;
+import org.springframework.web.bind.annotation.PostMapping;
+import org.springframework.web.bind.annotation.RequestBody;
+import org.springframework.web.bind.annotation.ResponseStatus;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RestController;
@@ -12,9 +27,13 @@ import org.springframework.web.bind.annotation.RestController;
 public class IdentityController {
 
     private final UserAccountRepository userAccountRepository;
+    private final PasswordEncoder passwordEncoder;
 
-    public IdentityController(UserAccountRepository userAccountRepository) {
+    public IdentityController(
+            UserAccountRepository userAccountRepository,
+            PasswordEncoder passwordEncoder) {
         this.userAccountRepository = userAccountRepository;
+        this.passwordEncoder = passwordEncoder;
     }
 
     /*
@@ -32,6 +51,61 @@ public class IdentityController {
                 .toList();
     }
 
+    @PostMapping("/register")
+    @ResponseStatus(HttpStatus.CREATED)
+    public IdentityResponse register(@Valid @RequestBody RegisterRequest request) {
+        String email = normalizeEmail(request.email());
+        if (userAccountRepository.findByEmail(email).isPresent()) {
+            throw new ConflictException("Email is already registered.");
+        }
+
+        UserAccount user = userAccountRepository.save(new UserAccount(
+                UUID.randomUUID(),
+                email,
+                request.displayName().trim(),
+                UserRole.USER,
+                passwordEncoder.encode(request.password())));
+        return IdentityResponse.from(user);
+    }
+
+    @PostMapping("/login")
+    public IdentityResponse login(@Valid @RequestBody LoginRequest request) {
+        String email = normalizeEmail(request.email());
+        UserAccount user = userAccountRepository.findByEmail(email).orElse(null);
+        if (user == null
+                || user.getDeletedAt() != null
+                || user.getPasswordHash() == null
+                || !passwordEncoder.matches(request.password(), user.getPasswordHash())) {
+            throw new UnauthorizedException("Invalid credentials.");
+        }
+        return IdentityResponse.from(user);
+    }
+
+    private static String normalizeEmail(String email) {
+        return email.trim().toLowerCase(Locale.ROOT);
+    }
+
     public record DemoUserResponse(java.util.UUID id, String email, String role) {
+    }
+
+    public record RegisterRequest(
+            @Email @NotBlank @Size(max = 255) String email,
+            @NotBlank @Size(min = 2, max = 120) String displayName,
+            @NotBlank @Size(min = 8, max = 72) String password) {
+    }
+
+    public record LoginRequest(
+            @Email @NotBlank @Size(max = 255) String email,
+            @NotBlank @Size(min = 8, max = 72) String password) {
+    }
+
+    public record IdentityResponse(java.util.UUID id, String email, String displayName, String role) {
+        static IdentityResponse from(UserAccount user) {
+            return new IdentityResponse(
+                    user.getId(),
+                    user.getEmail(),
+                    user.getDisplayName(),
+                    user.getRole().name());
+        }
     }
 }
