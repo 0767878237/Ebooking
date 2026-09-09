@@ -37,9 +37,11 @@ services:
     build:
       context: ./frontend
     container_name: ebooking-frontend
+    depends_on:
+      backend:
+        condition: service_started
     ports:
       - "3000:80"
 
 volumes:
   pgdata:
-

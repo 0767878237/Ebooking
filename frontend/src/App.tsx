@@ -364,7 +364,9 @@ function App() {
   const [booking, setBooking] = useState<Booking | null>(null);
   const [tickets, setTickets] = useState<TicketData[]>([]);
   const [notice, setNotice] = useState('');
-  const [paymentMethod, setPaymentMethod] = useState('sandbox_card');
+  // SUCCESS is the default sandbox path so checkout always opens with one
+  // explicit payment outcome selected; FAIL remains available for testing.
+  const [paymentMethod, setPaymentMethod] = useState('SUCCESS');
   const [scanValue, setScanValue] = useState('');
   const [checkinHistory, setCheckinHistory] = useState<CheckinRecord[]>([]);
   const [lastCheckin, setLastCheckin] = useState<CheckinRecord | null>(null);
