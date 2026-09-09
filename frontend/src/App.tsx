@@ -133,6 +133,13 @@ type DemoUserResponse = {
   role: IdentityKey;
 };
 
+type IdentityAuthResponse = {
+  id: string;
+  email: string;
+  displayName: string;
+  role: IdentityKey;
+};
+
 function canAccessView(role: IdentityKey, view: View) {
   if (view === 'checkin') {
     return role === 'CHECK_IN_STAFF' || role === 'ADMIN';
@@ -237,15 +244,17 @@ const demoSeats: Seat[] = Array.from({ length: 36 }, (_, index) => ({
   price: 100000,
 }));
 
-// Shared API client. The identity module currently authenticates through X-User-Id,
-// so every request must use the user selected in the active frontend session.
-function createRequest(userId: string) {
+// Shared API client. Demo role switching still uses X-User-Id, while real
+// login/register sessions use Basic auth until a token endpoint is introduced.
+function createRequest(userId: string, basicAuthHeader: string) {
   return async function request<T>(path: string, options?: RequestInit): Promise<T> {
     const headers: Record<string, string> = {
       'Content-Type': 'application/json',
       ...(options?.headers as Record<string, string> | undefined),
     };
-    if (userId) {
+    if (basicAuthHeader) {
+      headers.Authorization = basicAuthHeader;
+    } else if (userId) {
       headers['X-User-Id'] = userId;
     }
     const response = await fetch(`${API}${path}`, {
@@ -259,6 +268,10 @@ function createRequest(userId: string) {
 
     return response.status === 204 ? (undefined as T) : response.json();
   };
+}
+
+function toBasicAuthHeader(email: string, password: string) {
+  return `Basic ${window.btoa(`${email.trim().toLowerCase()}:${password}`)}`;
 }
 
 // Keep presentation formatting outside components to make UI output consistent.
@@ -374,9 +387,13 @@ function App() {
   const [loading, setLoading] = useState(false);
   const [identityKey, setIdentityKey] = useState<IdentityKey>('USER');
   const [identitySessions, setIdentitySessions] = useState(IDENTITY_SESSIONS);
+  const [basicAuthHeader, setBasicAuthHeader] = useState('');
+  const [authEmail, setAuthEmail] = useState('');
+  const [authPassword, setAuthPassword] = useState('');
+  const [authLoading, setAuthLoading] = useState(false);
   const [bookingHistory, setBookingHistory] = useState<BookingRecord[]>([]);
   const identity = identitySessions[identityKey];
-  const request = useMemo(() => createRequest(identity.userId), [identity.userId]);
+  const request = useMemo(() => createRequest(identity.userId, basicAuthHeader), [basicAuthHeader, identity.userId]);
 
   useEffect(() => {
     let cancelled = false;
@@ -750,10 +767,62 @@ function App() {
 
   function switchIdentity(nextIdentity: IdentityKey) {
     setIdentityKey(nextIdentity);
+    setBasicAuthHeader('');
+    setAuthPassword('');
     // A new identity should not inherit the previous booking/check-in state.
     resetFlow();
     if (!canAccessView(identitySessions[nextIdentity].role, view)) {
       setView('browse');
+    }
+  }
+
+  async function submitIdentityAuth(mode: 'login' | 'register') {
+    const email = authEmail.trim().toLowerCase();
+    if (!email || !authPassword) {
+      setNotice('Nhap email va mat khau truoc khi tiep tuc.');
+      return;
+    }
+
+    setAuthLoading(true);
+    try {
+      const payload = mode === 'register'
+        ? {
+            email,
+            // MVP keeps registration compact: display name is derived from the
+            // email prefix and can be expanded to an editable profile later.
+            displayName: email.split('@')[0] || 'E Booking User',
+            password: authPassword,
+          }
+        : { email, password: authPassword };
+      const response = await fetch(`${API}/api/identity/${mode}`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(payload),
+      });
+      if (!response.ok) {
+        const error = await response.json().catch(() => null);
+        throw new Error(error?.message ?? `Identity API ${response.status}`);
+      }
+
+      const session = (await response.json()) as IdentityAuthResponse;
+      setIdentitySessions((current) => ({
+        ...current,
+        USER: {
+          key: 'USER',
+          userId: session.id,
+          role: session.role,
+          displayName: session.displayName,
+          email: session.email,
+        },
+      }));
+      setIdentityKey('USER');
+      setBasicAuthHeader(toBasicAuthHeader(email, authPassword));
+      resetFlow();
+      setNotice(mode === 'register' ? 'Dang ky thanh cong.' : 'Dang nhap thanh cong.');
+    } catch (error) {
+      setNotice(error instanceof Error ? error.message : 'Identity request failed.');
+    } finally {
+      setAuthLoading(false);
     }
   }
 
@@ -805,7 +874,13 @@ function App() {
         view={view}
         identity={identity}
         identitySessions={identitySessions}
+        authEmail={authEmail}
+        authPassword={authPassword}
+        authLoading={authLoading}
         onIdentityChange={switchIdentity}
+        onAuthEmailChange={setAuthEmail}
+        onAuthPasswordChange={setAuthPassword}
+        onIdentitySubmit={submitIdentityAuth}
         onNavigate={navigate}
         onHome={resetFlow}
       />
@@ -906,14 +981,26 @@ function Header({
   view,
   identity,
   identitySessions,
+  authEmail,
+  authPassword,
+  authLoading,
   onIdentityChange,
+  onAuthEmailChange,
+  onAuthPasswordChange,
+  onIdentitySubmit,
   onNavigate,
   onHome,
 }: {
   view: View;
   identity: IdentitySession;
   identitySessions: Record<IdentityKey, IdentitySession>;
+  authEmail: string;
+  authPassword: string;
+  authLoading: boolean;
   onIdentityChange: (role: IdentityKey) => void;
+  onAuthEmailChange: (value: string) => void;
+  onAuthPasswordChange: (value: string) => void;
+  onIdentitySubmit: (mode: 'login' | 'register') => void;
   onNavigate: (view: View) => void;
   onHome: () => void;
 }) {
@@ -936,7 +1023,7 @@ function Header({
           <NavButton active={view === 'admin'} icon={<LayoutDashboard size={17} />} onClick={() => onNavigate('admin')}>Quan ly</NavButton>
         )}
       </nav>
-      <label className="account">
+      <div className="account">
         <span className="live-dot" />
         Identity
         <select value={identity.key} onChange={(event) => onIdentityChange(event.target.value as IdentityKey)}>
@@ -946,10 +1033,14 @@ function Header({
             </option>
           ))}
         </select>
+        <input value={authEmail} onChange={(event) => onAuthEmailChange(event.target.value)} placeholder="email" />
+        <input type="password" value={authPassword} onChange={(event) => onAuthPasswordChange(event.target.value)} placeholder="password" />
+        <button disabled={authLoading} onClick={() => onIdentitySubmit('login')}>Login</button>
+        <button disabled={authLoading} onClick={() => onIdentitySubmit('register')}>Register</button>
         <span className="avatar" title={`${identity.displayName} - ${identity.role}`}>
           {identity.role[0]}
         </span>
-      </label>
+      </div>
     </header>
   );
 }
