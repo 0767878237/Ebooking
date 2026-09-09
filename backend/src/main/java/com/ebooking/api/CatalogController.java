@@ -66,6 +66,18 @@ public class CatalogController {
     }
 
     /*
+     * The admin event form needs the genre UUID for writes, while the
+     * customer-facing search only needs genre names. Keep both contracts
+     * explicit so one screen does not accidentally send a display label as an ID.
+     */
+    @GetMapping("/genres/details")
+    public List<GenreResponse> genreDetails() {
+        return genreRepository.findByDeletedAtIsNull(PageRequest.of(0, 100, Sort.by("name").ascending())).stream()
+                .map(genre -> new GenreResponse(genre.getId(), genre.getName(), genre.getSlug()))
+                .toList();
+    }
+
+    /*
      * Compatibility endpoint for the first demo frontend.
      */
     @GetMapping("/venues/all")
@@ -83,5 +95,8 @@ public class CatalogController {
     }
 
     public record VenueResponse(UUID id, UUID cityId, String name, String address) {
+    }
+
+    public record GenreResponse(UUID id, String name, String slug) {
     }
 }

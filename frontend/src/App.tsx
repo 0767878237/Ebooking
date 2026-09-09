@@ -17,6 +17,7 @@ import {
   WalletCards,
 } from 'lucide-react';
 import { BookingHistoryView, CheckinWorkspace, EnhancedTicketView } from './featureViews';
+import { AdminWorkspace } from './adminView';
 
 // Domain models mirror the API payloads used by the booking flow.
 // Keep these close to the API contract until the frontend is split into feature modules.
@@ -125,6 +126,22 @@ type IdentitySession = {
   displayName: string;
   email: string;
 };
+
+type DemoUserResponse = {
+  id: string;
+  email: string;
+  role: IdentityKey;
+};
+
+function canAccessView(role: IdentityKey, view: View) {
+  if (view === 'checkin') {
+    return role === 'CHECK_IN_STAFF' || role === 'ADMIN';
+  }
+  if (view === 'admin') {
+    return role === 'ORGANIZER' || role === 'ADMIN';
+  }
+  return true;
+}
 
 // API is optional so the UI can still be previewed with the local demo data.
 const API = import.meta.env.VITE_API_BASE_URL ?? '';
@@ -259,6 +276,27 @@ function formatDate(value: string) {
   }).format(new Date(value));
 }
 
+async function loadDemoIdentitySessions() {
+  const response = await fetch(`${API}/api/identity/demo-users`);
+  if (!response.ok) {
+    throw new Error(`Identity API ${response.status}`);
+  }
+
+  const demoUsers = (await response.json()) as DemoUserResponse[];
+  return demoUsers.reduce<Record<IdentityKey, IdentitySession>>((sessions, user) => {
+    const key = user.role;
+    const fallback = IDENTITY_SESSIONS[key];
+    if (fallback) {
+      sessions[key] = {
+        ...fallback,
+        userId: user.id,
+        email: user.email,
+      };
+    }
+    return sessions;
+  }, { ...IDENTITY_SESSIONS });
+}
+
 function readBookingHistory(identityKey: IdentityKey): BookingRecord[] {
   if (typeof window === 'undefined') {
     return [];
@@ -333,9 +371,29 @@ function App() {
   const [checkinLoading, setCheckinLoading] = useState(false);
   const [loading, setLoading] = useState(false);
   const [identityKey, setIdentityKey] = useState<IdentityKey>('USER');
+  const [identitySessions, setIdentitySessions] = useState(IDENTITY_SESSIONS);
   const [bookingHistory, setBookingHistory] = useState<BookingRecord[]>([]);
-  const identity = IDENTITY_SESSIONS[identityKey];
+  const identity = identitySessions[identityKey];
   const request = useMemo(() => createRequest(identity.userId), [identity.userId]);
+
+  useEffect(() => {
+    let cancelled = false;
+
+    // Resolve demo UUIDs from the database so an existing Docker volume remains usable.
+    loadDemoIdentitySessions()
+      .then((sessions) => {
+        if (!cancelled) {
+          setIdentitySessions(sessions);
+        }
+      })
+      .catch(() => {
+        // Static fallback identities keep the visual demo usable without a backend.
+      });
+
+    return () => {
+      cancelled = true;
+    };
+  }, []);
 
   // Booking history is kept per identity so the "Ve cua toi" screen can work
   // without a backend list endpoint in the MVP.
@@ -675,6 +733,13 @@ function App() {
   }
 
   function navigate(nextView: View) {
+    // Keep client navigation aligned with backend roles so an identity switch
+    // cannot leave the user on a screen they are no longer allowed to use.
+    if (!canAccessView(identity.role, nextView)) {
+      setView('browse');
+      resetFlow();
+      return;
+    }
     setView(nextView);
     if (nextView === 'browse') {
       resetFlow();
@@ -685,6 +750,9 @@ function App() {
     setIdentityKey(nextIdentity);
     // A new identity should not inherit the previous booking/check-in state.
     resetFlow();
+    if (!canAccessView(identitySessions[nextIdentity].role, view)) {
+      setView('browse');
+    }
   }
 
   function saveBookingRecord(nextBooking: Booking, nextTickets: TicketData[] = [], paymentStatus?: string) {
@@ -734,6 +802,7 @@ function App() {
       <Header
         view={view}
         identity={identity}
+        identitySessions={identitySessions}
         onIdentityChange={switchIdentity}
         onNavigate={navigate}
         onHome={resetFlow}
@@ -823,7 +892,7 @@ function App() {
           }}
         />
       )}
-      {view === 'admin' && <AdminPage />}
+      {view === 'admin' && <AdminWorkspace identity={identity} request={request} />}
 
       <Footer />
     </main>
@@ -834,12 +903,14 @@ function App() {
 function Header({
   view,
   identity,
+  identitySessions,
   onIdentityChange,
   onNavigate,
   onHome,
 }: {
   view: View;
   identity: IdentitySession;
+  identitySessions: Record<IdentityKey, IdentitySession>;
   onIdentityChange: (role: IdentityKey) => void;
   onNavigate: (view: View) => void;
   onHome: () => void;
@@ -856,14 +927,18 @@ function Header({
       <nav className="main-nav" aria-label="Main navigation">
         <NavButton active={view === 'browse'} icon={<Search size={17} />} onClick={() => onNavigate('browse')}>Kham pha</NavButton>
         <NavButton active={view === 'bookings'} icon={<Ticket size={17} />} onClick={() => onNavigate('bookings')}>Ve cua toi</NavButton>
-        <NavButton active={view === 'checkin'} icon={<QrCode size={17} />} onClick={() => onNavigate('checkin')}>Check-in</NavButton>
-        <NavButton active={view === 'admin'} icon={<LayoutDashboard size={17} />} onClick={() => onNavigate('admin')}>Quan ly</NavButton>
+        {canAccessView(identity.role, 'checkin') && (
+          <NavButton active={view === 'checkin'} icon={<QrCode size={17} />} onClick={() => onNavigate('checkin')}>Check-in</NavButton>
+        )}
+        {canAccessView(identity.role, 'admin') && (
+          <NavButton active={view === 'admin'} icon={<LayoutDashboard size={17} />} onClick={() => onNavigate('admin')}>Quan ly</NavButton>
+        )}
       </nav>
       <label className="account">
         <span className="live-dot" />
         Identity
         <select value={identity.key} onChange={(event) => onIdentityChange(event.target.value as IdentityKey)}>
-          {Object.values(IDENTITY_SESSIONS).map((session) => (
+          {Object.values(identitySessions).map((session) => (
             <option key={session.key} value={session.key}>
               {session.displayName}
             </option>

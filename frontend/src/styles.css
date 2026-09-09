@@ -590,6 +590,25 @@ h2 { font-size: 28px; line-height: 1.1; letter-spacing: -1px; }
 .admin-stat svg { color: var(--color-accent); }
 .admin-stat small { color: var(--color-muted); font: 11px var(--font-sans); }
 .admin-stat strong { font-size: 34px; }
+.admin-notice { margin-bottom: 18px; padding: 12px 14px; border: 1px solid var(--color-line); background: var(--color-paper); color: var(--color-forest); font: 12px var(--font-sans); }
+.admin-layout { display: grid; grid-template-columns: 1.05fr .95fr; gap: 20px; }
+.admin-panel { padding: 18px; border: 1px solid var(--color-line); background: var(--color-paper); }
+.admin-panel h2 { margin-bottom: 16px; font-size: 20px; }
+.admin-form-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 12px; }
+.admin-form-grid label { display: grid; gap: 6px; color: var(--color-muted); font: 12px var(--font-sans); }
+.admin-form-grid .primary { align-self: end; }
+.admin-list { display: grid; gap: 10px; }
+.admin-item {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 12px 14px;
+  border: 1px solid var(--color-soft-line);
+  background: #faf7ef;
+}
+.admin-item small { display: block; color: var(--color-muted); font: 11px var(--font-sans); }
+.admin-actions { display: flex; align-items: center; gap: 8px; }
 .admin-table { border-top: 1px solid #bdb8ac; font: 12px var(--font-sans); }
 .table-head, .table-row {
   display: grid;
@@ -621,6 +640,7 @@ footer span:last-child { display: flex; align-items: center; gap: 4px; }
   .seat-layout, .checkout-grid, .checkin-panel { grid-template-columns: 1fr; }
   .map-panel { padding: 35px 5%; }
   .admin-grid { grid-template-columns: 1fr; }
+  .admin-layout, .admin-form-grid { grid-template-columns: 1fr; }
   .table-head, .table-row { grid-template-columns: 1.5fr 1fr; gap: 10px; }
   .table-head span:nth-child(n + 3), .table-row span:nth-child(n + 3) { display: none; }
   .ticket { grid-template-columns: 1fr 105px; }
