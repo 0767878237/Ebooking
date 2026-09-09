@@ -149,13 +149,30 @@ h2 { font-size: 28px; line-height: 1.1; letter-spacing: -1px; }
   font: 12px var(--font-sans);
 }
 .account select {
-  padding: 4px 6px;
-  border: 1px solid var(--color-line);
-  background: var(--color-paper);
-  color: var(--color-ink);
-  font-size: 11px;
-}
-.live-dot { width: 6px; height: 6px; border-radius: 50%; background: var(--color-success); }
+    padding: 4px 6px;
+    border: 1px solid var(--color-line);
+    background: var(--color-paper);
+    color: var(--color-ink);
+    font-size: 11px;
+  }
+  .account input {
+    width: 132px;
+    padding: 5px 7px;
+    border: 1px solid var(--color-line);
+    background: var(--color-paper);
+    color: var(--color-ink);
+    font-size: 11px;
+  }
+  .account button {
+    padding: 6px 9px;
+    border: 1px solid var(--color-line);
+    background: #fff;
+    color: var(--color-ink);
+    font-size: 11px;
+    cursor: pointer;
+  }
+  .account button:disabled { opacity: .55; cursor: wait; }
+  .live-dot { width: 6px; height: 6px; border-radius: 50%; background: var(--color-success); }
 .avatar { width: 29px; height: 29px; background: var(--color-forest); font-weight: bold; }
 
 /* Customer browse flow */
