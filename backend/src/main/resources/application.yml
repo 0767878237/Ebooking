@@ -35,3 +35,5 @@ logging:
 ebooking:
   security:
     qr-secret: ${EBOOKING_QR_SECRET:local-development-qr-secret-change-me-32chars}
+    jwt-secret: ${EBOOKING_JWT_SECRET:local-development-jwt-secret-key-must-be-at-least-256-bits-long!!}
+    jwt-expiration-seconds: ${EBOOKING_JWT_EXPIRATION:86400}

@@ -35,6 +35,7 @@ public class SecurityConfig {
                                 "/error",
                                 "/api/ping",
                                 "/api/identity/demo-users",
+                                "/api/identity/demo-token/**",
                                 "/api/identity/register",
                                 "/api/identity/login",
                                 "/actuator/health",
