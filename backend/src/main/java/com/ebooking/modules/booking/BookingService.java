@@ -199,14 +199,34 @@ public class BookingService {
         Booking booking = bookingRepository.lockById(bookingId)
                 .orElseThrow(() -> new NotFoundException("Booking was not found."));
         requireOwner(booking, userId);
-        if (booking.getStatus() != BookingStatus.PENDING_PAYMENT) {
-            throw new ConflictException("Only pending bookings can be cancelled in MVP.");
+        if (booking.getStatus() == BookingStatus.PENDING_PAYMENT) {
+            List<ShowSeat> showSeats = showSeatRepository.lockByHoldId(booking.getHold().getId());
+            booking.cancel();
+            if (booking.getHold() != null) {
+                booking.getHold().cancel();
+            }
+            showSeats.forEach(ShowSeat::releaseToAvailable);
+        } else if (booking.getStatus() == BookingStatus.PAID) {
+            ticketService.cancelTicketsForBooking(bookingId);
+            List<ShowSeat> showSeats = showSeatRepository.lockByHoldId(booking.getHold().getId());
+            booking.cancel();
+            if (booking.getHold() != null) {
+                booking.getHold().cancel();
+            }
+            showSeats.forEach(ShowSeat::releaseToAvailable);
+            log.info("Paid booking cancelled successfully: bookingId={}", bookingId);
+        } else {
+            throw new ConflictException("Only pending or paid bookings can be cancelled.");
         }
+    }
 
-        List<ShowSeat> showSeats = showSeatRepository.lockByHoldId(booking.getHold().getId());
-        booking.cancel();
-        booking.getHold().cancel();
-        showSeats.forEach(ShowSeat::releaseToAvailable);
+    @Transactional(readOnly = true)
+    public List<MyBookingResult> getMyBookings(UUID userId) {
+        List<Booking> bookings = bookingRepository.findByUserIdDetailed(userId);
+        return bookings.stream().map(booking -> {
+            List<BookingSeat> seats = bookingSeatRepository.findByBookingIdOrderBySeatLabelSnapshot(booking.getId());
+            return MyBookingResult.from(booking, seats);
+        }).toList();
     }
 
     @Scheduled(fixedDelayString = "30000")
@@ -329,6 +349,46 @@ public class BookingService {
                     payment.getProvider(),
                     payment.getProviderReference(),
                     payment.getAmount());
+        }
+    }
+
+    public record MyBookingResult(
+            UUID id,
+            UUID holdId,
+            BookingStatus status,
+            BigDecimal totalAmount,
+            Instant createdAt,
+            Instant expiresAt,
+            UUID eventId,
+            String eventTitle,
+            UUID showId,
+            String venueName,
+            Instant startsAt,
+            Instant endsAt,
+            List<BookingSeatResult> seats) {
+
+        static MyBookingResult from(Booking booking, List<BookingSeat> seats) {
+            var show = booking.getShow();
+            return new MyBookingResult(
+                    booking.getId(),
+                    booking.getHold() != null ? booking.getHold().getId() : null,
+                    booking.getStatus(),
+                    booking.getTotalAmount(),
+                    booking.getCreatedAt(),
+                    booking.getExpiresAt(),
+                    show != null && show.getEvent() != null ? show.getEvent().getId() : null,
+                    show != null && show.getEvent() != null ? show.getEvent().getTitle() : "",
+                    show != null ? show.getId() : null,
+                    show != null && show.getVenue() != null ? show.getVenue().getName() : "",
+                    show != null ? show.getStartsAt() : null,
+                    show != null ? show.getEndsAt() : null,
+                    seats.stream()
+                            .map(seat -> new BookingSeatResult(
+                                    seat.getSeat().getId(),
+                                    seat.getSeatLabelSnapshot(),
+                                    seat.getPrice()))
+                            .sorted(Comparator.comparing(BookingSeatResult::label))
+                            .toList());
         }
     }
 }

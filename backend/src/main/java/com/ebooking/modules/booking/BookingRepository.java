@@ -27,6 +27,18 @@ public interface BookingRepository extends JpaRepository<Booking, UUID> {
 
     java.util.List<Booking> findByUserIdOrderByCreatedAtDesc(UUID userId);
 
+    @Query("""
+            select booking
+            from Booking booking
+            join fetch booking.show show
+            join fetch show.event event
+            join fetch show.venue venue
+            left join fetch booking.hold hold
+            where booking.user.id = :userId
+            order by booking.createdAt desc
+            """)
+    java.util.List<Booking> findByUserIdDetailed(@Param("userId") UUID userId);
+
     Page<Booking> findByStatusAndExpiresAtLessThanEqual(
             BookingStatus status, Instant expiresAt, Pageable pageable);
 

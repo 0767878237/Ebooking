@@ -33,6 +33,13 @@ public class BookingController {
         this.currentUserService = currentUserService;
     }
 
+    @GetMapping
+    public List<MyBookingResponse> getMyBookings() {
+        return bookingService.getMyBookings(currentUserService.requireUserId()).stream()
+                .map(MyBookingResponse::from)
+                .toList();
+    }
+
     @PostMapping
     @ResponseStatus(HttpStatus.CREATED)
     public BookingResponse create(@Valid @RequestBody CreateBookingRequest request) {
@@ -106,6 +113,41 @@ public class BookingController {
                     result.provider(),
                     result.providerReference(),
                     result.amount());
+        }
+    }
+
+    public record MyBookingResponse(
+            UUID id,
+            UUID holdId,
+            String status,
+            BigDecimal totalAmount,
+            Instant createdAt,
+            Instant expiresAt,
+            UUID eventId,
+            String eventTitle,
+            UUID showId,
+            String venueName,
+            Instant startsAt,
+            Instant endsAt,
+            List<BookingSeatResponse> seats) {
+
+        static MyBookingResponse from(BookingService.MyBookingResult result) {
+            return new MyBookingResponse(
+                    result.id(),
+                    result.holdId(),
+                    result.status().name(),
+                    result.totalAmount(),
+                    result.createdAt(),
+                    result.expiresAt(),
+                    result.eventId(),
+                    result.eventTitle(),
+                    result.showId(),
+                    result.venueName(),
+                    result.startsAt(),
+                    result.endsAt(),
+                    result.seats().stream()
+                            .map(seat -> new BookingSeatResponse(seat.seatId(), seat.label(), seat.price()))
+                            .toList());
         }
     }
 }
