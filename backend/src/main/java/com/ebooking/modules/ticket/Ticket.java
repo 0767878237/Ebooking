@@ -61,6 +61,13 @@ public class Ticket extends BaseEntity {
         usedAt = Instant.now();
     }
 
+    public void markCancelled() {
+        if (status == TicketStatus.USED) {
+            throw new IllegalStateException("A used ticket cannot be cancelled.");
+        }
+        status = TicketStatus.CANCELLED;
+    }
+
     public UUID getId() {
         return super.getId();
     }

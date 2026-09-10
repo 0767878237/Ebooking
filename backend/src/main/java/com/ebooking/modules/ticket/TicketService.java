@@ -141,6 +141,41 @@ public class TicketService {
 
     }
 
+    @Transactional
+    public void cancelTicketsForBooking(UUID bookingId) {
+        List<Ticket> tickets = ticketRepository.findByBookingIdOrderByTicketCode(bookingId);
+        boolean hasUsed = tickets.stream().anyMatch(t -> t.getStatus() == TicketStatus.USED);
+        if (hasUsed) {
+            throw new ConflictException("Cannot cancel booking because tickets have already been used at check-in.");
+        }
+        tickets.forEach(Ticket::markCancelled);
+        ticketRepository.saveAll(tickets);
+    }
+
+    @Transactional(readOnly = true)
+    public List<ScanRecordResult> recentScans() {
+        return ticketScanRepository.findAll(
+                org.springframework.data.domain.PageRequest.of(0, 30, org.springframework.data.domain.Sort.by("scannedAt").descending()))
+                .getContent().stream()
+                .map(scan -> new ScanRecordResult(
+                        scan.getId(),
+                        scan.getTicket() != null ? scan.getTicket().getTicketCode() : null,
+                        scan.getResult(),
+                        scan.getDeviceId(),
+                        scan.getNote(),
+                        scan.getScannedAt()))
+                .toList();
+    }
+
+    public record ScanRecordResult(
+            UUID id,
+            String ticketCode,
+            TicketScanResult result,
+            String deviceId,
+            String note,
+            java.time.Instant scannedAt) {
+    }
+
     public record ScanResult(String ticketCode, TicketScanResult result, java.time.Instant usedAt) {
     }
 }

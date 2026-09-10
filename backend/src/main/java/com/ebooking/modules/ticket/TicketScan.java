@@ -53,4 +53,32 @@ public class TicketScan {
         this.deviceId = deviceId;
         this.note = note;
     }
+
+    public UUID getId() {
+        return id;
+    }
+
+    public Ticket getTicket() {
+        return ticket;
+    }
+
+    public UserAccount getStaffUser() {
+        return staffUser;
+    }
+
+    public TicketScanResult getResult() {
+        return result;
+    }
+
+    public Instant getScannedAt() {
+        return scannedAt;
+    }
+
+    public String getDeviceId() {
+        return deviceId;
+    }
+
+    public String getNote() {
+        return note;
+    }
 }

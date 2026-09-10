@@ -44,6 +44,11 @@ public class TicketController {
         return new ScanResponse(result.ticketCode(), result.result(), result.usedAt());
     }
 
+    @GetMapping("/checkin/scans")
+    public List<TicketService.ScanRecordResult> recentScans() {
+        return ticketService.recentScans();
+    }
+
     public record ScanRequest(
             @NotBlank @Size(max = 128) String qrPayload,
             @Size(max = 120) String deviceId,
