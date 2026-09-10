@@ -246,13 +246,15 @@ const demoSeats: Seat[] = Array.from({ length: 36 }, (_, index) => ({
 
 // Shared API client. Demo role switching still uses X-User-Id, while real
 // login/register sessions use Basic auth until a token endpoint is introduced.
-function createRequest(userId: string, basicAuthHeader: string) {
+function createRequest(userId: string, basicAuthHeader: string, token: string = '') {
   return async function request<T>(path: string, options?: RequestInit): Promise<T> {
     const headers: Record<string, string> = {
       'Content-Type': 'application/json',
       ...(options?.headers as Record<string, string> | undefined),
     };
-    if (basicAuthHeader) {
+    if (token) {
+      headers.Authorization = `Bearer ${token}`;
+    } else if (basicAuthHeader) {
       headers.Authorization = basicAuthHeader;
     } else if (userId) {
       headers['X-User-Id'] = userId;
@@ -263,7 +265,14 @@ function createRequest(userId: string, basicAuthHeader: string) {
     });
 
     if (!response.ok) {
-      throw new Error(`API ${response.status}`);
+      let msg = `API ${response.status}`;
+      try {
+        const body = await response.json();
+        if (body?.message) msg = body.message;
+      } catch {
+        // ignore parse error
+      }
+      throw new Error(msg);
     }
 
     return response.status === 204 ? (undefined as T) : response.json();
@@ -387,13 +396,35 @@ function App() {
   const [loading, setLoading] = useState(false);
   const [identityKey, setIdentityKey] = useState<IdentityKey>('USER');
   const [identitySessions, setIdentitySessions] = useState(IDENTITY_SESSIONS);
+  const [jwtToken, setJwtToken] = useState('');
   const [basicAuthHeader, setBasicAuthHeader] = useState('');
   const [authEmail, setAuthEmail] = useState('');
   const [authPassword, setAuthPassword] = useState('');
   const [authLoading, setAuthLoading] = useState(false);
   const [bookingHistory, setBookingHistory] = useState<BookingRecord[]>([]);
   const identity = identitySessions[identityKey];
-  const request = useMemo(() => createRequest(identity.userId, basicAuthHeader), [basicAuthHeader, identity.userId]);
+  const request = useMemo(() => createRequest(identity.userId, basicAuthHeader, jwtToken), [basicAuthHeader, identity.userId, jwtToken]);
+
+  useEffect(() => {
+    let cancelled = false;
+    async function fetchDemoToken() {
+      try {
+        const res = await fetch(`${API}/api/identity/demo-token/${identity.userId}`);
+        if (res.ok) {
+          const data = await res.json();
+          if (!cancelled && data.token) {
+            setJwtToken(data.token);
+          }
+        }
+      } catch {
+        // Fallback to X-User-Id
+      }
+    }
+    void fetchDemoToken();
+    return () => {
+      cancelled = true;
+    };
+  }, [identity.userId]);
 
   useEffect(() => {
     let cancelled = false;
@@ -414,17 +445,100 @@ function App() {
     };
   }, []);
 
-  // Booking history is kept per identity so the "Ve cua toi" screen can work
-  // without a backend list endpoint in the MVP.
+  // Fetch real booking history from backend API, with local storage fallback
   useEffect(() => {
-    setBookingHistory(readBookingHistory(identityKey));
-  }, [identityKey]);
+    let cancelled = false;
+    async function loadBackendBookings() {
+      try {
+        type ApiBooking = {
+          id: string;
+          holdId: string;
+          status: string;
+          totalAmount: number;
+          createdAt?: string;
+          expiresAt?: string;
+          eventId?: string;
+          eventTitle?: string;
+          showId?: string;
+          venueName?: string;
+          startsAt?: string;
+          endsAt?: string;
+          seats: BookingSeat[];
+        };
+        const data = await request<ApiBooking[]>('/api/bookings');
+        if (!cancelled && Array.isArray(data)) {
+          const records: BookingRecord[] = data.map((b) => ({
+            bookingId: b.id,
+            holdId: b.holdId,
+            status: b.status,
+            totalAmount: b.totalAmount,
+            seats: b.seats || [],
+            eventTitle: b.eventTitle || 'Event',
+            show: {
+              id: b.showId || '',
+              venueName: b.venueName || '',
+              startsAt: b.startsAt || '',
+              endsAt: b.endsAt || '',
+            },
+            expiresAt: b.expiresAt,
+            tickets: [],
+          }));
+          setBookingHistory(records);
+          return;
+        }
+      } catch {
+        // fallback to local storage
+      }
+      if (!cancelled) {
+        setBookingHistory(readBookingHistory(identityKey));
+      }
+    }
+    void loadBackendBookings();
+    return () => {
+      cancelled = true;
+    };
+  }, [identityKey, request]);
 
   useEffect(() => {
-    const history = readCheckinHistory(identityKey);
-    setCheckinHistory(history);
-    setLastCheckin(history[0] ?? null);
-  }, [identityKey]);
+    let cancelled = false;
+    async function loadRecentScans() {
+      if (view === 'checkin' && (identity.role === 'CHECK_IN_STAFF' || identity.role === 'ADMIN')) {
+        try {
+          const scans = await request<Array<{
+            id: string;
+            ticketCode: string | null;
+            result: string;
+            deviceId?: string;
+            note?: string;
+            scannedAt: string;
+          }>>('/api/checkin/scans');
+          if (!cancelled && Array.isArray(scans) && scans.length > 0) {
+            const records: CheckinRecord[] = scans.map((s) => ({
+              qrPayload: '',
+              ticketCode: s.ticketCode,
+              result: s.result,
+              usedAt: s.scannedAt,
+              deviceId: s.deviceId || 'web-gate-01',
+            }));
+            setCheckinHistory(records);
+            setLastCheckin(records[0] ?? null);
+            return;
+          }
+        } catch {
+          // fallback
+        }
+      }
+      if (!cancelled) {
+        const history = readCheckinHistory(identityKey);
+        setCheckinHistory(history);
+        setLastCheckin(history[0] ?? null);
+      }
+    }
+    void loadRecentScans();
+    return () => {
+      cancelled = true;
+    };
+  }, [identityKey, identity.role, request, view]);
 
   useEffect(() => {
     try {
@@ -804,7 +918,10 @@ function App() {
         throw new Error(error?.message ?? `Identity API ${response.status}`);
       }
 
-      const session = (await response.json()) as IdentityAuthResponse;
+      const session = (await response.json()) as IdentityAuthResponse & { token?: string };
+      if (session.token) {
+        setJwtToken(session.token);
+      }
       setIdentitySessions((current) => ({
         ...current,
         USER: {
@@ -847,7 +964,7 @@ function App() {
   }
 
   async function cancelBooking(record: BookingRecord) {
-    if (record.status !== 'PENDING_PAYMENT') {
+    if (record.status !== 'PENDING_PAYMENT' && record.status !== 'PAID') {
       return;
     }
 

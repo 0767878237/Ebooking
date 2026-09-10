@@ -102,7 +102,7 @@ export function BookingHistoryView({
                 </small>
               </span>
               <strong>{formatMoney(record.totalAmount)}</strong>
-              {record.status === 'PENDING_PAYMENT' && (
+              {(record.status === 'PENDING_PAYMENT' || record.status === 'PAID') && (
                 <button className="secondary" onClick={() => onCancel(record)}>
                   Huy
                 </button>
