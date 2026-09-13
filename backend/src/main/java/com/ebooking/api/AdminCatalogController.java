@@ -1,7 +1,10 @@
 package com.ebooking.api;
 
+import java.math.BigDecimal;
 import java.time.Instant;
+import java.util.ArrayList;
 import java.util.List;
+import java.util.Locale;
 import java.util.Map;
 import java.util.UUID;
 
@@ -10,7 +13,11 @@ import com.ebooking.modules.catalog.City;
 import com.ebooking.modules.catalog.CityRepository;
 import com.ebooking.modules.catalog.Venue;
 import com.ebooking.modules.catalog.VenueRepository;
+import com.ebooking.modules.catalog.VenueSeat;
 import com.ebooking.modules.catalog.VenueSeatRepository;
+import com.ebooking.modules.catalog.VenueSection;
+import com.ebooking.modules.catalog.VenueSectionRepository;
+import com.ebooking.modules.identity.UserAccount;
 import com.ebooking.modules.event.Event;
 import com.ebooking.modules.event.EventRepository;
 import com.ebooking.modules.event.Genre;
@@ -54,6 +61,7 @@ public class AdminCatalogController {
     private final ShowRepository showRepository;
     private final UserAccountRepository userAccountRepository;
     private final VenueSeatRepository venueSeatRepository;
+    private final VenueSectionRepository venueSectionRepository;
     private final ShowSeatRepository showSeatRepository;
     private final CurrentUserService currentUserService;
 
@@ -65,6 +73,7 @@ public class AdminCatalogController {
             ShowRepository showRepository,
             UserAccountRepository userAccountRepository,
             VenueSeatRepository venueSeatRepository,
+            VenueSectionRepository venueSectionRepository,
             ShowSeatRepository showSeatRepository,
             CurrentUserService currentUserService) {
         this.cityRepository = cityRepository;
@@ -74,6 +83,7 @@ public class AdminCatalogController {
         this.showRepository = showRepository;
         this.userAccountRepository = userAccountRepository;
         this.venueSeatRepository = venueSeatRepository;
+        this.venueSectionRepository = venueSectionRepository;
         this.showSeatRepository = showSeatRepository;
         this.currentUserService = currentUserService;
     }
@@ -82,12 +92,8 @@ public class AdminCatalogController {
     public PageResponse<AdminEventResponse> events(
             @RequestParam(defaultValue = "0") int page,
             @RequestParam(defaultValue = "100") int size) {
-        var currentUser = userAccountRepository.findById(currentUserService.requireUserId())
-                .orElseThrow(() -> new NotFoundException("Current user was not found."));
         Pageable pageable = PageRequest.of(page, Math.min(size, 100), Sort.by("createdAt").descending());
-        var eventPage = currentUser.getRole() == UserRole.ADMIN
-                ? eventRepository.findByDeletedAtIsNull(pageable)
-                : eventRepository.findByOrganizer_IdAndDeletedAtIsNull(currentUser.getId(), pageable);
+        var eventPage = eventRepository.findByDeletedAtIsNull(pageable);
         List<UUID> eventIds = eventPage.getContent().stream().map(Event::getId).toList();
         Map<UUID, List<AdminShowSummary>> showsByEvent = eventIds.isEmpty()
                 ? Map.of()
@@ -229,6 +235,161 @@ public class AdminCatalogController {
         eventRepository.findById(eventId)
                 .orElseThrow(() -> new NotFoundException("Event was not found."))
                 .softDelete();
+    }
+
+    @PostMapping("/events/quick-create")
+    @ResponseStatus(HttpStatus.CREATED)
+    @Transactional
+    public AdminEventResponse quickCreateEvent(@Valid @RequestBody QuickCreateEventRequest request) {
+        UserAccount admin = userAccountRepository.findById(currentUserService.requireUserId())
+                .orElseThrow(() -> new NotFoundException("Admin user not found."));
+
+        // 1. Resolve Genre
+        Genre genre = null;
+        if (request.genreId() != null) {
+            genre = genreRepository.findById(request.genreId()).orElse(null);
+        }
+        if (genre == null && request.genreName() != null && !request.genreName().isBlank()) {
+            String gName = request.genreName().trim();
+            genre = genreRepository.findByNameIgnoreCase(gName).orElseGet(() -> {
+                String slug = gName.toLowerCase(Locale.ROOT).replaceAll("\\s+", "-");
+                return genreRepository.save(new Genre(UUID.randomUUID(), gName, slug));
+            });
+        }
+        if (genre == null) {
+            genre = genreRepository.findAll().stream().findFirst()
+                    .orElseGet(() -> genreRepository.save(new Genre(UUID.randomUUID(), "Sự kiện", "su-kien")));
+        }
+
+        // 2. Resolve City
+        City city = null;
+        if (request.cityId() != null) {
+            city = cityRepository.findById(request.cityId()).orElse(null);
+        }
+        if (city == null && request.cityName() != null && !request.cityName().isBlank()) {
+            String cName = request.cityName().trim();
+            city = cityRepository.findByNameIgnoreCase(cName).orElseGet(() ->
+                cityRepository.save(new City(UUID.randomUUID(), cName))
+            );
+        }
+        if (city == null) {
+            city = cityRepository.findAll().stream().findFirst()
+                    .orElseGet(() -> cityRepository.save(new City(UUID.randomUUID(), "Hồ Chí Minh")));
+        }
+
+        // 3. Resolve Venue
+        final City venueCity = city;
+        Venue venue = null;
+        if (request.venueId() != null) {
+            venue = venueRepository.findById(request.venueId()).orElse(null);
+        }
+        if (venue == null && request.venueName() != null && !request.venueName().isBlank()) {
+            String vName = request.venueName().trim();
+            String address = request.venueAddress() != null && !request.venueAddress().isBlank()
+                    ? request.venueAddress().trim()
+                    : "Trung tâm";
+            venue = venueRepository.save(new Venue(UUID.randomUUID(), venueCity, vName, address));
+        }
+        if (venue == null) {
+            venue = venueRepository.findAll().stream().findFirst()
+                    .orElseGet(() -> venueRepository.save(new Venue(UUID.randomUUID(), venueCity, "Trung tâm biểu diễn", "Trung tâm")));
+        }
+
+        // 4. Ensure Venue has sections & seats for SUPER VIP, VIP, NORMAL
+        List<VenueSeat> venueSeats = venueSeatRepository
+                .findByVenueIdOrderBySectionNameAscRowNameAscSeatNumberAsc(venue.getId());
+        if (venueSeats.isEmpty()) {
+            VenueSection superVipSection = venueSectionRepository.save(new VenueSection(UUID.randomUUID(), venue, "SUPER VIP"));
+            VenueSection vipSection = venueSectionRepository.save(new VenueSection(UUID.randomUUID(), venue, "VIP"));
+            VenueSection normalSection = venueSectionRepository.save(new VenueSection(UUID.randomUUID(), venue, "NORMAL"));
+
+            List<VenueSeat> generatedSeats = new ArrayList<>();
+            // Row A: SUPER VIP (seats 1..6)
+            for (int i = 1; i <= 6; i++) {
+                generatedSeats.add(new VenueSeat(UUID.randomUUID(), venue, superVipSection, "A", i));
+            }
+            // Row B: VIP (seats 1..6)
+            for (int i = 1; i <= 6; i++) {
+                generatedSeats.add(new VenueSeat(UUID.randomUUID(), venue, vipSection, "B", i));
+            }
+            // Rows C & D: NORMAL (seats 1..6 each)
+            for (int i = 1; i <= 6; i++) {
+                generatedSeats.add(new VenueSeat(UUID.randomUUID(), venue, normalSection, "C", i));
+            }
+            for (int i = 1; i <= 6; i++) {
+                generatedSeats.add(new VenueSeat(UUID.randomUUID(), venue, normalSection, "D", i));
+            }
+            venueSeats = venueSeatRepository.saveAll(generatedSeats);
+        }
+
+        // 5. Create Event
+        Event event = eventRepository.save(new Event(
+                UUID.randomUUID(),
+                admin,
+                genre,
+                request.title().trim(),
+                request.description().trim(),
+                genre.getName(),
+                request.published()));
+
+        // 6. Validate dates
+        Instant startsAt = request.startsAt();
+        Instant endsAt = request.endsAt();
+        if (!endsAt.isAfter(startsAt)) {
+            endsAt = startsAt.plusSeconds(3 * 3600);
+        }
+
+        // 7. Create Show
+        Show show = showRepository.save(new Show(UUID.randomUUID(), event, venue, startsAt, endsAt));
+
+        // 8. Generate ShowSeats with Tiered Pricing
+        BigDecimal superVipPrice = request.superVipPrice() != null ? request.superVipPrice() : new BigDecimal("500000.00");
+        BigDecimal vipPrice = request.vipPrice() != null ? request.vipPrice() : new BigDecimal("300000.00");
+        BigDecimal normalPrice = request.normalPrice() != null ? request.normalPrice() : new BigDecimal("150000.00");
+
+        List<ShowSeat> showSeats = new ArrayList<>();
+        for (VenueSeat seat : venueSeats) {
+            BigDecimal seatPrice;
+            String sectionName = seat.getSectionName() != null ? seat.getSectionName().toUpperCase(Locale.ROOT) : "";
+            String rowName = seat.getRowName() != null ? seat.getRowName().toUpperCase(Locale.ROOT) : "";
+
+            if (sectionName.contains("SUPER") || rowName.equals("A")) {
+                seatPrice = superVipPrice;
+            } else if (sectionName.contains("VIP") || rowName.equals("B")) {
+                seatPrice = vipPrice;
+            } else {
+                seatPrice = normalPrice;
+            }
+            showSeats.add(new ShowSeat(show, seat, seatPrice));
+        }
+        showSeatRepository.saveAll(showSeats);
+
+        var showSummary = new AdminShowSummary(show.getId(), venue.getId(), venue.getName(), show.getStartsAt(), show.getEndsAt());
+        return new AdminEventResponse(
+                event.getId(),
+                event.getTitle(),
+                event.getDescription(),
+                event.getCategory(),
+                event.isPublished(),
+                List.of(showSummary));
+    }
+
+    public record QuickCreateEventRequest(
+            @NotBlank @Size(max = 200) String title,
+            @NotBlank @Size(max = 2000) String description,
+            String genreName,
+            UUID genreId,
+            String cityName,
+            UUID cityId,
+            String venueName,
+            UUID venueId,
+            String venueAddress,
+            @NotNull Instant startsAt,
+            @NotNull Instant endsAt,
+            boolean published,
+            BigDecimal superVipPrice,
+            BigDecimal vipPrice,
+            BigDecimal normalPrice) {
     }
 
     public record CityRequest(@NotBlank @Size(max = 120) String name) {

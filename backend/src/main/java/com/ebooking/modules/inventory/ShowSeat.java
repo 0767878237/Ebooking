@@ -49,11 +49,15 @@ public class ShowSeat {
     }
 
     public ShowSeat(Show show, VenueSeat seat) {
+        this(show, seat, new BigDecimal("100000.00"));
+    }
+
+    public ShowSeat(Show show, VenueSeat seat, BigDecimal price) {
         this.id = new ShowSeatId(show.getId(), seat.getId());
         this.show = show;
         this.seat = seat;
         this.status = ShowSeatStatus.AVAILABLE;
-        this.price = new BigDecimal("100000.00");
+        this.price = price != null ? price : new BigDecimal("100000.00");
     }
 
     public void releaseIfExpired(Instant now) {
