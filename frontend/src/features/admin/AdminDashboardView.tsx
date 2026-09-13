@@ -10,7 +10,7 @@ import { ErrorMessage } from '../../components/common/ErrorMessage';
 
 export function AdminDashboardView() {
   const { role } = useAuth();
-  const canAccess = role === 'ADMIN' || role === 'ORGANIZER';
+  const canAccess = role === 'ADMIN';
 
   const [activeTab, setActiveTab] = useState<'events' | 'catalog' | 'shows'>('events');
   const [events, setEvents] = useState<Event[]>([]);
@@ -88,7 +88,7 @@ export function AdminDashboardView() {
         <ShieldAlert size={48} style={{ color: '#f87171', margin: '0 auto 1rem' }} />
         <h2 style={{ color: '#f8fafc', margin: '0 0 0.5rem' }}>Truy cập bị từ chối</h2>
         <p style={{ color: '#94a3b8' }}>
-          Bạn cần đăng nhập bằng tài khoản Quản trị viên (ADMIN) hoặc Ban tổ chức (ORGANIZER) để truy cập chức năng này.
+          Bạn cần đăng nhập bằng tài khoản Quản trị viên (ADMIN) để truy cập chức năng này.
         </p>
       </section>
     );

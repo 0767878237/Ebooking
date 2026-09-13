@@ -12,11 +12,10 @@ export function Header({
   const { user, role, demoUsers, switchDemoUser, logout, setIsAuthModalOpen, setAuthModalMode } = useAuth();
 
   const canAccessCheckin = role === 'CHECK_IN_STAFF' || role === 'ADMIN';
-  const canAccessAdmin = role === 'ORGANIZER' || role === 'ADMIN';
+  const canAccessAdmin = role === 'ADMIN';
 
   const roleLabelMap: Record<string, { label: string; color: string }> = {
     USER: { label: 'Khách hàng', color: '#38bdf8' },
-    ORGANIZER: { label: 'Ban tổ chức', color: '#fbbf24' },
     CHECK_IN_STAFF: { label: 'Soát vé', color: '#34d399' },
     ADMIN: { label: 'Quản trị viên', color: '#f472b6' },
   };

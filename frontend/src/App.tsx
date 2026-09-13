@@ -125,7 +125,7 @@ type Venue = {
   address: string;
 };
 
-type IdentityKey = 'USER' | 'ORGANIZER' | 'CHECK_IN_STAFF' | 'ADMIN';
+type IdentityKey = 'USER' | 'CHECK_IN_STAFF' | 'ADMIN';
 
 type IdentitySession = {
   key: IdentityKey;
@@ -153,7 +153,7 @@ function canAccessView(role: IdentityKey | string | undefined, view: View) {
     return role === 'CHECK_IN_STAFF' || role === 'ADMIN';
   }
   if (view === 'admin') {
-    return role === 'ORGANIZER' || role === 'ADMIN';
+    return role === 'ADMIN';
   }
   return true;
 }
@@ -169,13 +169,6 @@ const IDENTITY_SESSIONS: Record<IdentityKey, IdentitySession> = {
     role: 'USER',
     displayName: 'E Booking Customer',
     email: 'customer@ebooking.local',
-  },
-  ORGANIZER: {
-    key: 'ORGANIZER',
-    userId: 'f639fec1-eb8c-4782-8507-9cb8c5df392c',
-    role: 'ORGANIZER',
-    displayName: 'E Booking Organizer',
-    email: 'organizer@ebooking.local',
   },
   CHECK_IN_STAFF: {
     key: 'CHECK_IN_STAFF',
@@ -1234,7 +1227,6 @@ function App() {
 // Role badge configuration for account tags
 const ROLE_BADGE_CONFIG: Record<string, { label: string; badgeClass: string }> = {
   USER: { label: 'Khách hàng', badgeClass: 'bg-sky-100 text-sky-800 border-sky-300' },
-  ORGANIZER: { label: 'Ban tổ chức', badgeClass: 'bg-amber-100 text-amber-800 border-amber-300' },
   CHECK_IN_STAFF: { label: 'Soát vé', badgeClass: 'bg-emerald-100 text-emerald-800 border-emerald-300' },
   ADMIN: { label: 'Quản trị viên', badgeClass: 'bg-purple-100 text-purple-800 border-purple-300' },
 };

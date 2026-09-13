@@ -433,7 +433,7 @@ export function AuthDialog({
                 </div>
                 <span className="text-[11px] text-stone-400 font-mono">Pass: password123</span>
               </div>
-              <div className="grid grid-cols-2 gap-1.5 text-xs">
+              <div className="grid grid-cols-1 sm:grid-cols-3 gap-1.5 text-xs">
                 <button
                   type="button"
                   disabled={loading}
@@ -452,16 +452,6 @@ export function AuthDialog({
                   title="Đăng nhập ngay với Quản trị viên (pass: password123)"
                 >
                   <span>👑 Quản trị viên</span>
-                  <span className="text-[10px] text-stone-400 font-normal">Đăng nhập</span>
-                </button>
-                <button
-                  type="button"
-                  disabled={loading}
-                  onClick={() => handleQuickLogin(demoUsers.find((u) => u.role === 'ORGANIZER')?.email || 'organizer@ebooking.local')}
-                  className="py-2 px-2.5 bg-stone-100 hover:bg-stone-200 text-stone-700 hover:text-stone-900 rounded-lg text-left transition-colors border border-stone-200/80 font-medium truncate cursor-pointer disabled:opacity-50 flex items-center justify-between"
-                  title="Đăng nhập ngay với Ban tổ chức (pass: password123)"
-                >
-                  <span>🎪 Ban tổ chức</span>
                   <span className="text-[10px] text-stone-400 font-normal">Đăng nhập</span>
                 </button>
                 <button

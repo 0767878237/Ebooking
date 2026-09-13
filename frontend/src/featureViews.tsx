@@ -1,7 +1,7 @@
 import { Check, ChevronRight, QrCode, Ticket } from 'lucide-react';
 import type { ReactNode } from 'react';
 
-type IdentityRole = 'USER' | 'ORGANIZER' | 'CHECK_IN_STAFF' | 'ADMIN';
+type IdentityRole = 'USER' | 'CHECK_IN_STAFF' | 'ADMIN';
 
 type IdentitySession = {
   key: IdentityRole;
