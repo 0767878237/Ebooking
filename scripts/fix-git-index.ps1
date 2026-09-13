@@ -1,49 +1,76 @@
-# Script khac phuc loi .git/index 0KB va dong bo trang thai Git
+# Script khac phuc triet de loi .git/index 0KB tren Windows
+# Luu va tai tao truc tiep vao file .git/index bang Git native thay vi dung file index.backup
 $ErrorActionPreference = "Continue"
 
-$gitDir = Join-Path $PSScriptRoot "..\.git"
+$repoRoot = (Resolve-Path (Join-Path $PSScriptRoot "..")).Path
+Set-Location $repoRoot
+
+$gitDir = Join-Path $repoRoot ".git"
 $indexPath = Join-Path $gitDir "index"
+$lockPath = Join-Path $gitDir "index.lock"
 $backupPath = Join-Path $gitDir "index.backup"
 
-Write-Host "Dang kiem tra trang thai file .git/index..." -ForegroundColor Cyan
+Write-Host "=== KIEM TRA VA KHAC PHUC .GIT/INDEX ===" -ForegroundColor Cyan
 
-$needFix = $false
+# 1. Xoa file backup cu de tranh gay nham lan hoac phuc hoi du lieu loi thoi
+if (Test-Path $backupPath) {
+    Remove-Item $backupPath -Force -ErrorAction SilentlyContinue
+    Write-Host "[Info] Da xoa file .git/index.backup cu de luu truc tiep vao git index." -ForegroundColor DarkGray
+}
 
+# 2. Xoa file lock treo neu co (nguyen nhan khien index bi loi)
+if (Test-Path $lockPath) {
+    Remove-Item $lockPath -Force -ErrorAction SilentlyContinue
+    Write-Host "[Canh bao] Phat hien va da xoa file treo .git/index.lock!" -ForegroundColor Yellow
+}
+
+# 3. Kiem tra file index
+$needRebuild = $false
 if (-not (Test-Path $indexPath)) {
-    Write-Host "Phat hien: File .git/index khong ton tai!" -ForegroundColor Yellow
-    $needFix = $true
+    Write-Host "[Loi] File .git/index khong ton tai!" -ForegroundColor Red
+    $needRebuild = $true
 } else {
     $size = (Get-Item $indexPath).Length
     if ($size -eq 0) {
-        Write-Host "Phat hien: File .git/index bi 0KB (corrupted)!" -ForegroundColor Red
-        $needFix = $true
+        Write-Host "[Loi] File .git/index bi 0KB (corrupted)!" -ForegroundColor Red
+        $needRebuild = $true
     } else {
-        Write-Host "File .git/index binh thuong ($size bytes)." -ForegroundColor Green
-    }
-}
-
-if ($needFix) {
-    if ((Test-Path $backupPath) -and ((Get-Item $backupPath).Length -gt 0)) {
-        Write-Host "Dang khoi phuc tu file backup: $backupPath..." -ForegroundColor Cyan
-        Copy-Item $backupPath $indexPath -Force
-    } else {
-        Write-Host "Dang tai tao index tu HEAD bang git reset..." -ForegroundColor Cyan
-        if (Test-Path $indexPath) {
-            Remove-Item $indexPath -Force -ErrorAction SilentlyContinue
+        # Kiem tra thu git co doc duoc index khong
+        $testStatus = git status 2>&1
+        if ($LASTEXITCODE -ne 0) {
+            Write-Host "[Loi] Git khong doc duoc file index hien tai!" -ForegroundColor Red
+            $needRebuild = $true
+        } else {
+            Write-Host "[OK] File .git/index dang hoat dong binh thuong ($size bytes)." -ForegroundColor Green
         }
-        git reset
     }
-
-    $newSize = (Get-Item $indexPath -ErrorAction SilentlyContinue).Length
-    Write-Host "Da khoi phuc .git/index thanh cong! Kich thuoc moi: $newSize bytes." -ForegroundColor Green
 }
 
-# Sao luu index hien tai de du phong
-if ((Test-Path $indexPath) -and ((Get-Item $indexPath).Length -gt 0)) {
-    Copy-Item $indexPath $backupPath -Force
-    Write-Host "Da cap nhat ban sao luu tai .git/index.backup." -ForegroundColor DarkGray
+# 4. Tai tao truc tiep file .git/index tu HEAD
+if ($needRebuild) {
+    Write-Host "Dang tai tao truc tiep .git/index tu commit HEAD..." -ForegroundColor Cyan
+    if (Test-Path $indexPath) {
+        Remove-Item $indexPath -Force -ErrorAction SilentlyContinue
+    }
+    
+    # Su dung git reset de Git tu tao lai toan bo index chuan xac
+    git reset HEAD
+    
+    if (Test-Path $indexPath) {
+        $newSize = (Get-Item $indexPath).Length
+        Write-Host "[Thanh cong] Da tai tao .git/index truc tiep! Kich thuoc: $newSize bytes." -ForegroundColor Green
+    } else {
+        Write-Host "[Loi] Khong the tai tao index, vui long kiem tra HEAD!" -ForegroundColor Red
+    }
 }
+
+# 5. Cau hinh toi uu tranh loi 0KB tren Windows
+try {
+    # Go bo core.fsync tranh conflict khoa file tren NTFS khi co antivirus/OneDrive/IDE
+    git config --local --unset core.fsync 2>$null
+    git config --local --unset core.preloadindex 2>$null
+    git config --local core.fscache true 2>$null
+} catch {}
 
 Write-Host "`nTrang thai Git hien tai:" -ForegroundColor Cyan
 git status --short
-
