@@ -48,7 +48,7 @@ public class SecurityConfig {
                         .requestMatchers("/actuator/info", "/actuator/metrics", "/actuator/prometheus")
                         .hasRole("ADMIN")
                         .requestMatchers("/api/admin/**")
-                        .hasAnyRole("ADMIN", "ORGANIZER")
+                        .hasRole("ADMIN")
                         .requestMatchers("/api/checkin/**")
                         .hasAnyRole("CHECK_IN_STAFF", "ADMIN")
                         .requestMatchers("/api/shows/*/holds", "/api/bookings/**")

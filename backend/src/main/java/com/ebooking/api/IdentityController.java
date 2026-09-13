@@ -52,7 +52,7 @@ public class IdentityController {
     @GetMapping("/demo-users")
     public List<DemoUserResponse> demoUsers() {
         return userAccountRepository.findAll().stream()
-                .filter(user -> user.getEmail().endsWith("@ebooking.local"))
+                .filter(user -> user.getEmail().endsWith("@ebooking.local") && user.getRole() != UserRole.ORGANIZER)
                 .map(user -> new DemoUserResponse(
                         user.getId(),
                         user.getEmail(),
