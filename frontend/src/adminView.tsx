@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState, type ReactNode } from 'react';
+import { useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
 import {
   Building2,
   Calendar,
@@ -10,6 +10,7 @@ import {
   Eye,
   EyeOff,
   MapPin,
+  Pencil,
   Plus,
   Search,
   Sparkles,
@@ -115,6 +116,12 @@ export function AdminWorkspace({
   const [advVenueName, setAdvVenueName] = useState('');
   const [advVenueAddress, setAdvVenueAddress] = useState('');
 
+  // Advanced catalog tabs & editing states
+  const [advTab, setAdvTab] = useState<'cities' | 'genres' | 'venues'>('cities');
+  const [editingCity, setEditingCity] = useState<{ id: string; name: string } | null>(null);
+  const [editingGenre, setEditingGenre] = useState<{ id: string; name: string; slug: string } | null>(null);
+  const [editingVenue, setEditingVenue] = useState<{ id: string; cityId: string; name: string; address: string } | null>(null);
+
   // Refresh all visible catalog data after each write.
   useEffect(() => {
     let cancelled = false;
@@ -184,6 +191,70 @@ export function AdminWorkspace({
       setBusy(false);
     }
   }
+
+  // City update & delete handlers
+  const handleUpdateCity = async () => {
+    if (!editingCity || !editingCity.name.trim()) return;
+    await mutate(`Cập nhật thành phố`, async () => {
+      await request(`/api/admin/cities/${editingCity.id}`, {
+        method: 'PUT',
+        body: JSON.stringify({ name: editingCity.name.trim() }),
+      });
+      setEditingCity(null);
+    });
+  };
+
+  const handleDeleteCity = async (city: City) => {
+    if (window.confirm(`Bạn có chắc chắn muốn xóa thành phố "${city.name}"?`)) {
+      await mutate(`Xóa thành phố`, async () => {
+        await request(`/api/admin/cities/${city.id}`, { method: 'DELETE' });
+      });
+    }
+  };
+
+  // Genre update & delete handlers
+  const handleUpdateGenre = async () => {
+    if (!editingGenre || !editingGenre.name.trim() || !editingGenre.slug.trim()) return;
+    await mutate(`Cập nhật thể loại`, async () => {
+      await request(`/api/admin/genres/${editingGenre.id}`, {
+        method: 'PUT',
+        body: JSON.stringify({ name: editingGenre.name.trim(), slug: editingGenre.slug.trim().toLowerCase() }),
+      });
+      setEditingGenre(null);
+    });
+  };
+
+  const handleDeleteGenre = async (genre: Genre) => {
+    if (window.confirm(`Bạn có chắc chắn muốn xóa thể loại "${genre.name}"?`)) {
+      await mutate(`Xóa thể loại`, async () => {
+        await request(`/api/admin/genres/${genre.id}`, { method: 'DELETE' });
+      });
+    }
+  };
+
+  // Venue update & delete handlers
+  const handleUpdateVenue = async () => {
+    if (!editingVenue || !editingVenue.name.trim() || !editingVenue.cityId || !editingVenue.address.trim()) return;
+    await mutate(`Cập nhật địa điểm`, async () => {
+      await request(`/api/admin/venues/${editingVenue.id}`, {
+        method: 'PUT',
+        body: JSON.stringify({
+          cityId: editingVenue.cityId,
+          name: editingVenue.name.trim(),
+          address: editingVenue.address.trim(),
+        }),
+      });
+      setEditingVenue(null);
+    });
+  };
+
+  const handleDeleteVenue = async (venue: Venue) => {
+    if (window.confirm(`Bạn có chắc chắn muốn xóa địa điểm "${venue.name}"?`)) {
+      await mutate(`Xóa địa điểm`, async () => {
+        await request(`/api/admin/venues/${venue.id}`, { method: 'DELETE' });
+      });
+    }
+  };
 
   if (!canEdit) {
     return (
@@ -583,130 +654,700 @@ export function AdminWorkspace({
         </button>
 
         {isAdvancedOpen && (
-          <div style={{ padding: '1.5rem', display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(280px, 1fr))', gap: '1.5rem' }}>
-            {/* Create City */}
-            <div style={{ background: '#fff', padding: '1rem', border: '1px solid #e2e8f0', borderRadius: '6px' }}>
-              <h3 style={{ fontSize: '0.875rem', fontWeight: 700, margin: '0 0 0.75rem', color: '#1e293b' }}>Thêm Thành phố</h3>
-              <input
-                className="text-input"
-                placeholder="Tên thành phố (VD: Cần Thơ)"
-                value={advCityName}
-                onChange={(e) => setAdvCityName(e.target.value)}
-              />
+          <div style={{ padding: '1.5rem' }}>
+            {/* Sub-tabs for Cities / Genres / Venues */}
+            <div style={{ display: 'flex', gap: '0.5rem', marginBottom: '1.25rem', borderBottom: '1px solid #e2e8f0', paddingBottom: '0.5rem', flexWrap: 'wrap' }}>
               <button
-                className="primary"
-                disabled={busy || !advCityName.trim()}
-                onClick={() =>
-                  mutate('Tạo thành phố', async () => {
-                    await request('/api/admin/cities', {
-                      method: 'POST',
-                      body: JSON.stringify({ name: advCityName.trim() }),
-                    });
-                    setAdvCityName('');
-                  })
-                }
-                style={{ width: '100%', padding: '0.5rem', fontSize: '0.75rem' }}
-              >
-                <Plus size={14} /> Thêm Thành phố
-              </button>
-            </div>
-
-            {/* Create Genre */}
-            <div style={{ background: '#fff', padding: '1rem', border: '1px solid #e2e8f0', borderRadius: '6px' }}>
-              <h3 style={{ fontSize: '0.875rem', fontWeight: 700, margin: '0 0 0.75rem', color: '#1e293b' }}>Thêm Thể loại</h3>
-              <input
-                className="text-input"
-                placeholder="Tên thể loại (VD: Hòa nhạc thính phòng)"
-                value={advGenreName}
-                onChange={(e) => {
-                  setAdvGenreName(e.target.value);
-                  if (!advGenreSlug) {
-                    setAdvGenreSlug(
-                      e.target.value
-                        .toLowerCase()
-                        .normalize('NFD')
-                        .replace(/[\u0300-\u036f]/g, '')
-                        .replace(/[đĐ]/g, 'd')
-                        .replace(/[^a-z0-9]+/g, '-')
-                        .replace(/^-+|-+$/g, '')
-                    );
-                  }
+                type="button"
+                onClick={() => setAdvTab('cities')}
+                style={{
+                  padding: '0.5rem 1rem',
+                  fontSize: '0.8125rem',
+                  fontWeight: 600,
+                  borderRadius: '6px',
+                  border: 'none',
+                  background: advTab === 'cities' ? '#db5a39' : '#f1f5f9',
+                  color: advTab === 'cities' ? '#fff' : '#475569',
+                  cursor: 'pointer',
                 }}
-              />
-              <input
-                className="text-input"
-                placeholder="Slug (VD: hoa-nhac-thinh-phong)"
-                value={advGenreSlug}
-                onChange={(e) => setAdvGenreSlug(e.target.value)}
-              />
-              <button
-                className="primary"
-                disabled={busy || !advGenreName.trim() || !advGenreSlug.trim()}
-                onClick={() =>
-                  mutate('Tạo thể loại', async () => {
-                    await request('/api/admin/genres', {
-                      method: 'POST',
-                      body: JSON.stringify({ name: advGenreName.trim(), slug: advGenreSlug.trim() }),
-                    });
-                    setAdvGenreName('');
-                    setAdvGenreSlug('');
-                  })
-                }
-                style={{ width: '100%', padding: '0.5rem', fontSize: '0.75rem' }}
               >
-                <Plus size={14} /> Thêm Thể loại
+                🏙️ Thành phố ({cities.length})
+              </button>
+              <button
+                type="button"
+                onClick={() => setAdvTab('genres')}
+                style={{
+                  padding: '0.5rem 1rem',
+                  fontSize: '0.8125rem',
+                  fontWeight: 600,
+                  borderRadius: '6px',
+                  border: 'none',
+                  background: advTab === 'genres' ? '#db5a39' : '#f1f5f9',
+                  color: advTab === 'genres' ? '#fff' : '#475569',
+                  cursor: 'pointer',
+                }}
+              >
+                🎭 Thể loại ({genres.length})
+              </button>
+              <button
+                type="button"
+                onClick={() => setAdvTab('venues')}
+                style={{
+                  padding: '0.5rem 1rem',
+                  fontSize: '0.8125rem',
+                  fontWeight: 600,
+                  borderRadius: '6px',
+                  border: 'none',
+                  background: advTab === 'venues' ? '#db5a39' : '#f1f5f9',
+                  color: advTab === 'venues' ? '#fff' : '#475569',
+                  cursor: 'pointer',
+                }}
+              >
+                📍 Địa điểm ({venues.length})
               </button>
             </div>
 
-            {/* Create Venue */}
-            <div style={{ background: '#fff', padding: '1rem', border: '1px solid #e2e8f0', borderRadius: '6px' }}>
-              <h3 style={{ fontSize: '0.875rem', fontWeight: 700, margin: '0 0 0.75rem', color: '#1e293b' }}>Thêm Địa điểm</h3>
-              <select
-                className="text-input"
-                value={advVenueCityId}
-                onChange={(e) => setAdvVenueCityId(e.target.value)}
-              >
-                <option value="">Chọn thành phố</option>
-                {cities.map((city) => (
-                  <option key={city.id} value={city.id}>
-                    {city.name}
-                  </option>
-                ))}
-              </select>
-              <input
-                className="text-input"
-                placeholder="Tên địa điểm (VD: Sân vận động Mỹ Đình)"
-                value={advVenueName}
-                onChange={(e) => setAdvVenueName(e.target.value)}
-              />
-              <input
-                className="text-input"
-                placeholder="Địa chỉ cụ thể"
-                value={advVenueAddress}
-                onChange={(e) => setAdvVenueAddress(e.target.value)}
-              />
-              <button
-                className="primary"
-                disabled={busy || !advVenueCityId || !advVenueName.trim() || !advVenueAddress.trim()}
-                onClick={() =>
-                  mutate('Tạo địa điểm', async () => {
-                    await request('/api/admin/venues', {
-                      method: 'POST',
-                      body: JSON.stringify({
-                        cityId: advVenueCityId,
-                        name: advVenueName.trim(),
-                        address: advVenueAddress.trim(),
-                      }),
-                    });
-                    setAdvVenueName('');
-                    setAdvVenueAddress('');
-                  })
-                }
-                style={{ width: '100%', padding: '0.5rem', fontSize: '0.75rem' }}
-              >
-                <Plus size={14} /> Thêm Địa điểm
-              </button>
-            </div>
+            {/* TAB 1: CITIES */}
+            {advTab === 'cities' && (
+              <div style={{ display: 'grid', gap: '1.5rem' }}>
+                {/* Add new City form */}
+                <div style={{ background: '#fff', padding: '1rem 1.25rem', border: '1px solid #e2e8f0', borderRadius: '8px' }}>
+                  <h3 style={{ fontSize: '0.875rem', fontWeight: 700, margin: '0 0 0.75rem', color: '#1e293b' }}>
+                    + Thêm Thành phố mới
+                  </h3>
+                  <div style={{ display: 'flex', gap: '0.5rem', flexWrap: 'wrap' }}>
+                    <input
+                      type="text"
+                      className="text-input"
+                      placeholder="Tên thành phố (VD: Cần Thơ, Hải Phòng...)"
+                      value={advCityName}
+                      onChange={(e) => setAdvCityName(e.target.value)}
+                      style={{ flex: '1 1 200px', margin: 0 }}
+                    />
+                    <button
+                      type="button"
+                      className="primary"
+                      disabled={busy || !advCityName.trim()}
+                      onClick={() =>
+                        mutate('Tạo thành phố', async () => {
+                          await request('/api/admin/cities', {
+                            method: 'POST',
+                            body: JSON.stringify({ name: advCityName.trim() }),
+                          });
+                          setAdvCityName('');
+                        })
+                      }
+                      style={{ padding: '0.5rem 1rem', fontSize: '0.8125rem', display: 'inline-flex', alignItems: 'center', gap: '0.35rem' }}
+                    >
+                      <Plus size={15} /> Thêm
+                    </button>
+                  </div>
+                </div>
+
+                {/* Cities list with Edit & Delete */}
+                <div style={{ background: '#fff', padding: '1rem 1.25rem', border: '1px solid #e2e8f0', borderRadius: '8px' }}>
+                  <h3 style={{ fontSize: '0.875rem', fontWeight: 700, margin: '0 0 0.75rem', color: '#1e293b' }}>
+                    Danh sách Thành phố ({cities.length})
+                  </h3>
+                  {cities.length === 0 ? (
+                    <p style={{ color: '#94a3b8', fontSize: '0.8125rem', margin: 0 }}>Chưa có thành phố nào.</p>
+                  ) : (
+                    <div style={{ display: 'grid', gap: '0.5rem' }}>
+                      {cities.map((city) => {
+                        const isEditing = editingCity?.id === city.id;
+                        return (
+                          <div
+                            key={city.id}
+                            style={{
+                              display: 'flex',
+                              alignItems: 'center',
+                              justifyContent: 'space-between',
+                              flexWrap: 'wrap',
+                              gap: '0.5rem',
+                              padding: '0.625rem 0.85rem',
+                              background: '#f8fafc',
+                              border: '1px solid #e2e8f0',
+                              borderRadius: '6px',
+                            }}
+                          >
+                            {isEditing ? (
+                              <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', flex: '1 1 300px' }}>
+                                <input
+                                  type="text"
+                                  value={editingCity.name}
+                                  onChange={(e) => setEditingCity({ ...editingCity, name: e.target.value })}
+                                  style={{
+                                    flex: 1,
+                                    padding: '0.35rem 0.5rem',
+                                    fontSize: '0.8125rem',
+                                    border: '1px solid #cfc9bc',
+                                    borderRadius: '4px',
+                                  }}
+                                  autoFocus
+                                />
+                                <button
+                                  type="button"
+                                  disabled={busy || !editingCity.name.trim()}
+                                  onClick={handleUpdateCity}
+                                  style={{
+                                    display: 'inline-flex',
+                                    alignItems: 'center',
+                                    gap: '0.25rem',
+                                    padding: '0.35rem 0.65rem',
+                                    fontSize: '0.75rem',
+                                    fontWeight: 600,
+                                    borderRadius: '4px',
+                                    border: 'none',
+                                    backgroundColor: '#166534',
+                                    color: '#fff',
+                                    cursor: 'pointer',
+                                  }}
+                                >
+                                  <Check size={13} /> Lưu
+                                </button>
+                                <button
+                                  type="button"
+                                  onClick={() => setEditingCity(null)}
+                                  style={{
+                                    display: 'inline-flex',
+                                    alignItems: 'center',
+                                    gap: '0.25rem',
+                                    padding: '0.35rem 0.65rem',
+                                    fontSize: '0.75rem',
+                                    fontWeight: 600,
+                                    borderRadius: '4px',
+                                    border: '1px solid #cfc9bc',
+                                    backgroundColor: '#fff',
+                                    color: '#64748b',
+                                    cursor: 'pointer',
+                                  }}
+                                >
+                                  <X size={13} /> Hủy
+                                </button>
+                              </div>
+                            ) : (
+                              <>
+                                <span style={{ fontWeight: 600, fontSize: '0.875rem', color: '#1e293b' }}>
+                                  {city.name}
+                                </span>
+                                <div style={{ display: 'flex', alignItems: 'center', gap: '0.4rem' }}>
+                                  <button
+                                    type="button"
+                                    disabled={busy}
+                                    onClick={() => setEditingCity({ id: city.id, name: city.name })}
+                                    style={{
+                                      display: 'inline-flex',
+                                      alignItems: 'center',
+                                      gap: '0.25rem',
+                                      padding: '0.3rem 0.6rem',
+                                      fontSize: '0.75rem',
+                                      fontWeight: 600,
+                                      borderRadius: '4px',
+                                      border: '1px solid #cfc9bc',
+                                      backgroundColor: '#fff',
+                                      color: '#0284c7',
+                                      cursor: 'pointer',
+                                    }}
+                                  >
+                                    <Pencil size={13} /> Sửa
+                                  </button>
+                                  <button
+                                    type="button"
+                                    disabled={busy}
+                                    onClick={() => handleDeleteCity(city)}
+                                    style={{
+                                      display: 'inline-flex',
+                                      alignItems: 'center',
+                                      gap: '0.25rem',
+                                      padding: '0.3rem 0.6rem',
+                                      fontSize: '0.75rem',
+                                      fontWeight: 600,
+                                      borderRadius: '4px',
+                                      border: '1px solid #fecaca',
+                                      backgroundColor: '#fff',
+                                      color: '#dc2626',
+                                      cursor: 'pointer',
+                                    }}
+                                  >
+                                    <Trash2 size={13} /> Xóa
+                                  </button>
+                                </div>
+                              </>
+                            )}
+                          </div>
+                        );
+                      })}
+                    </div>
+                  )}
+                </div>
+              </div>
+            )}
+
+            {/* TAB 2: GENRES */}
+            {advTab === 'genres' && (
+              <div style={{ display: 'grid', gap: '1.5rem' }}>
+                {/* Add new Genre form */}
+                <div style={{ background: '#fff', padding: '1rem 1.25rem', border: '1px solid #e2e8f0', borderRadius: '8px' }}>
+                  <h3 style={{ fontSize: '0.875rem', fontWeight: 700, margin: '0 0 0.75rem', color: '#1e293b' }}>
+                    + Thêm Thể loại mới
+                  </h3>
+                  <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(180px, 1fr))', gap: '0.5rem', marginBottom: '0.5rem' }}>
+                    <input
+                      type="text"
+                      className="text-input"
+                      placeholder="Tên thể loại (VD: Hòa nhạc thính phòng)"
+                      value={advGenreName}
+                      onChange={(e) => {
+                        setAdvGenreName(e.target.value);
+                        if (!advGenreSlug) {
+                          setAdvGenreSlug(
+                            e.target.value
+                              .toLowerCase()
+                              .normalize('NFD')
+                              .replace(/[\u0300-\u036f]/g, '')
+                              .replace(/[đĐ]/g, 'd')
+                              .replace(/[^a-z0-9]+/g, '-')
+                              .replace(/^-+|-+$/g, '')
+                          );
+                        }
+                      }}
+                      style={{ margin: 0 }}
+                    />
+                    <input
+                      type="text"
+                      className="text-input"
+                      placeholder="Slug (VD: hoa-nhac-thinh-phong)"
+                      value={advGenreSlug}
+                      onChange={(e) => setAdvGenreSlug(e.target.value)}
+                      style={{ margin: 0 }}
+                    />
+                  </div>
+                  <button
+                    type="button"
+                    className="primary"
+                    disabled={busy || !advGenreName.trim() || !advGenreSlug.trim()}
+                    onClick={() =>
+                      mutate('Tạo thể loại', async () => {
+                        await request('/api/admin/genres', {
+                          method: 'POST',
+                          body: JSON.stringify({ name: advGenreName.trim(), slug: advGenreSlug.trim() }),
+                        });
+                        setAdvGenreName('');
+                        setAdvGenreSlug('');
+                      })
+                    }
+                    style={{ padding: '0.5rem 1rem', fontSize: '0.8125rem', display: 'inline-flex', alignItems: 'center', gap: '0.35rem' }}
+                  >
+                    <Plus size={15} /> Thêm Thể loại
+                  </button>
+                </div>
+
+                {/* Genres list with Edit & Delete */}
+                <div style={{ background: '#fff', padding: '1rem 1.25rem', border: '1px solid #e2e8f0', borderRadius: '8px' }}>
+                  <h3 style={{ fontSize: '0.875rem', fontWeight: 700, margin: '0 0 0.75rem', color: '#1e293b' }}>
+                    Danh sách Thể loại ({genres.length})
+                  </h3>
+                  {genres.length === 0 ? (
+                    <p style={{ color: '#94a3b8', fontSize: '0.8125rem', margin: 0 }}>Chưa có thể loại nào.</p>
+                  ) : (
+                    <div style={{ display: 'grid', gap: '0.5rem' }}>
+                      {genres.map((genre) => {
+                        const isEditing = editingGenre?.id === genre.id;
+                        return (
+                          <div
+                            key={genre.id}
+                            style={{
+                              display: 'flex',
+                              alignItems: 'center',
+                              justifyContent: 'space-between',
+                              flexWrap: 'wrap',
+                              gap: '0.5rem',
+                              padding: '0.625rem 0.85rem',
+                              background: '#f8fafc',
+                              border: '1px solid #e2e8f0',
+                              borderRadius: '6px',
+                            }}
+                          >
+                            {isEditing ? (
+                              <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', flex: '1 1 300px', flexWrap: 'wrap' }}>
+                                <input
+                                  type="text"
+                                  placeholder="Tên thể loại"
+                                  value={editingGenre.name}
+                                  onChange={(e) => setEditingGenre({ ...editingGenre, name: e.target.value })}
+                                  style={{
+                                    flex: '1 1 140px',
+                                    padding: '0.35rem 0.5rem',
+                                    fontSize: '0.8125rem',
+                                    border: '1px solid #cfc9bc',
+                                    borderRadius: '4px',
+                                  }}
+                                  autoFocus
+                                />
+                                <input
+                                  type="text"
+                                  placeholder="Slug"
+                                  value={editingGenre.slug}
+                                  onChange={(e) => setEditingGenre({ ...editingGenre, slug: e.target.value })}
+                                  style={{
+                                    flex: '1 1 140px',
+                                    padding: '0.35rem 0.5rem',
+                                    fontSize: '0.8125rem',
+                                    border: '1px solid #cfc9bc',
+                                    borderRadius: '4px',
+                                  }}
+                                />
+                                <button
+                                  type="button"
+                                  disabled={busy || !editingGenre.name.trim() || !editingGenre.slug.trim()}
+                                  onClick={handleUpdateGenre}
+                                  style={{
+                                    display: 'inline-flex',
+                                    alignItems: 'center',
+                                    gap: '0.25rem',
+                                    padding: '0.35rem 0.65rem',
+                                    fontSize: '0.75rem',
+                                    fontWeight: 600,
+                                    borderRadius: '4px',
+                                    border: 'none',
+                                    backgroundColor: '#166534',
+                                    color: '#fff',
+                                    cursor: 'pointer',
+                                  }}
+                                >
+                                  <Check size={13} /> Lưu
+                                </button>
+                                <button
+                                  type="button"
+                                  onClick={() => setEditingGenre(null)}
+                                  style={{
+                                    display: 'inline-flex',
+                                    alignItems: 'center',
+                                    gap: '0.25rem',
+                                    padding: '0.35rem 0.65rem',
+                                    fontSize: '0.75rem',
+                                    fontWeight: 600,
+                                    borderRadius: '4px',
+                                    border: '1px solid #cfc9bc',
+                                    backgroundColor: '#fff',
+                                    color: '#64748b',
+                                    cursor: 'pointer',
+                                  }}
+                                >
+                                  <X size={13} /> Hủy
+                                </button>
+                              </div>
+                            ) : (
+                              <>
+                                <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
+                                  <span style={{ fontWeight: 600, fontSize: '0.875rem', color: '#1e293b' }}>
+                                    {genre.name}
+                                  </span>
+                                  <span style={{ fontSize: '0.6875rem', padding: '0.1rem 0.4rem', borderRadius: '4px', background: '#e2e8f0', color: '#475569' }}>
+                                    {genre.slug}
+                                  </span>
+                                </div>
+                                <div style={{ display: 'flex', alignItems: 'center', gap: '0.4rem' }}>
+                                  <button
+                                    type="button"
+                                    disabled={busy}
+                                    onClick={() => setEditingGenre({ id: genre.id, name: genre.name, slug: genre.slug })}
+                                    style={{
+                                      display: 'inline-flex',
+                                      alignItems: 'center',
+                                      gap: '0.25rem',
+                                      padding: '0.3rem 0.6rem',
+                                      fontSize: '0.75rem',
+                                      fontWeight: 600,
+                                      borderRadius: '4px',
+                                      border: '1px solid #cfc9bc',
+                                      backgroundColor: '#fff',
+                                      color: '#0284c7',
+                                      cursor: 'pointer',
+                                    }}
+                                  >
+                                    <Pencil size={13} /> Sửa
+                                  </button>
+                                  <button
+                                    type="button"
+                                    disabled={busy}
+                                    onClick={() => handleDeleteGenre(genre)}
+                                    style={{
+                                      display: 'inline-flex',
+                                      alignItems: 'center',
+                                      gap: '0.25rem',
+                                      padding: '0.3rem 0.6rem',
+                                      fontSize: '0.75rem',
+                                      fontWeight: 600,
+                                      borderRadius: '4px',
+                                      border: '1px solid #fecaca',
+                                      backgroundColor: '#fff',
+                                      color: '#dc2626',
+                                      cursor: 'pointer',
+                                    }}
+                                  >
+                                    <Trash2 size={13} /> Xóa
+                                  </button>
+                                </div>
+                              </>
+                            )}
+                          </div>
+                        );
+                      })}
+                    </div>
+                  )}
+                </div>
+              </div>
+            )}
+
+            {/* TAB 3: VENUES */}
+            {advTab === 'venues' && (
+              <div style={{ display: 'grid', gap: '1.5rem' }}>
+                {/* Add new Venue form */}
+                <div style={{ background: '#fff', padding: '1rem 1.25rem', border: '1px solid #e2e8f0', borderRadius: '8px' }}>
+                  <h3 style={{ fontSize: '0.875rem', fontWeight: 700, margin: '0 0 0.75rem', color: '#1e293b' }}>
+                    + Thêm Địa điểm mới
+                  </h3>
+                  <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(180px, 1fr))', gap: '0.5rem', marginBottom: '0.5rem' }}>
+                    <select
+                      className="text-input"
+                      value={advVenueCityId}
+                      onChange={(e) => setAdvVenueCityId(e.target.value)}
+                      style={{ margin: 0 }}
+                    >
+                      <option value="">Chọn thành phố</option>
+                      {cities.map((city) => (
+                        <option key={city.id} value={city.id}>
+                          {city.name}
+                        </option>
+                      ))}
+                    </select>
+                    <input
+                      type="text"
+                      className="text-input"
+                      placeholder="Tên địa điểm (VD: SVĐ Mỹ Đình)"
+                      value={advVenueName}
+                      onChange={(e) => setAdvVenueName(e.target.value)}
+                      style={{ margin: 0 }}
+                    />
+                    <input
+                      type="text"
+                      className="text-input"
+                      placeholder="Địa chỉ cụ thể"
+                      value={advVenueAddress}
+                      onChange={(e) => setAdvVenueAddress(e.target.value)}
+                      style={{ margin: 0 }}
+                    />
+                  </div>
+                  <button
+                    type="button"
+                    className="primary"
+                    disabled={busy || !advVenueCityId || !advVenueName.trim() || !advVenueAddress.trim()}
+                    onClick={() =>
+                      mutate('Tạo địa điểm', async () => {
+                        await request('/api/admin/venues', {
+                          method: 'POST',
+                          body: JSON.stringify({
+                            cityId: advVenueCityId,
+                            name: advVenueName.trim(),
+                            address: advVenueAddress.trim(),
+                          }),
+                        });
+                        setAdvVenueName('');
+                        setAdvVenueAddress('');
+                      })
+                    }
+                    style={{ padding: '0.5rem 1rem', fontSize: '0.8125rem', display: 'inline-flex', alignItems: 'center', gap: '0.35rem' }}
+                  >
+                    <Plus size={15} /> Thêm Địa điểm
+                  </button>
+                </div>
+
+                {/* Venues list with Edit & Delete */}
+                <div style={{ background: '#fff', padding: '1rem 1.25rem', border: '1px solid #e2e8f0', borderRadius: '8px' }}>
+                  <h3 style={{ fontSize: '0.875rem', fontWeight: 700, margin: '0 0 0.75rem', color: '#1e293b' }}>
+                    Danh sách Địa điểm ({venues.length})
+                  </h3>
+                  {venues.length === 0 ? (
+                    <p style={{ color: '#94a3b8', fontSize: '0.8125rem', margin: 0 }}>Chưa có địa điểm nào.</p>
+                  ) : (
+                    <div style={{ display: 'grid', gap: '0.5rem' }}>
+                      {venues.map((venue) => {
+                        const isEditing = editingVenue?.id === venue.id;
+                        const cityName = cities.find((c) => c.id === venue.cityId)?.name || 'Chưa rõ';
+                        return (
+                          <div
+                            key={venue.id}
+                            style={{
+                              display: 'flex',
+                              alignItems: 'center',
+                              justifyContent: 'space-between',
+                              flexWrap: 'wrap',
+                              gap: '0.5rem',
+                              padding: '0.625rem 0.85rem',
+                              background: '#f8fafc',
+                              border: '1px solid #e2e8f0',
+                              borderRadius: '6px',
+                            }}
+                          >
+                            {isEditing ? (
+                              <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', flex: '1 1 320px', flexWrap: 'wrap' }}>
+                                <select
+                                  value={editingVenue.cityId}
+                                  onChange={(e) => setEditingVenue({ ...editingVenue, cityId: e.target.value })}
+                                  style={{
+                                    flex: '1 1 130px',
+                                    padding: '0.35rem 0.5rem',
+                                    fontSize: '0.8125rem',
+                                    border: '1px solid #cfc9bc',
+                                    borderRadius: '4px',
+                                  }}
+                                >
+                                  {cities.map((c) => (
+                                    <option key={c.id} value={c.id}>
+                                      {c.name}
+                                    </option>
+                                  ))}
+                                </select>
+                                <input
+                                  type="text"
+                                  placeholder="Tên địa điểm"
+                                  value={editingVenue.name}
+                                  onChange={(e) => setEditingVenue({ ...editingVenue, name: e.target.value })}
+                                  style={{
+                                    flex: '1 1 150px',
+                                    padding: '0.35rem 0.5rem',
+                                    fontSize: '0.8125rem',
+                                    border: '1px solid #cfc9bc',
+                                    borderRadius: '4px',
+                                  }}
+                                  autoFocus
+                                />
+                                <input
+                                  type="text"
+                                  placeholder="Địa chỉ"
+                                  value={editingVenue.address}
+                                  onChange={(e) => setEditingVenue({ ...editingVenue, address: e.target.value })}
+                                  style={{
+                                    flex: '1 1 180px',
+                                    padding: '0.35rem 0.5rem',
+                                    fontSize: '0.8125rem',
+                                    border: '1px solid #cfc9bc',
+                                    borderRadius: '4px',
+                                  }}
+                                />
+                                <button
+                                  type="button"
+                                  disabled={busy || !editingVenue.name.trim() || !editingVenue.address.trim() || !editingVenue.cityId}
+                                  onClick={handleUpdateVenue}
+                                  style={{
+                                    display: 'inline-flex',
+                                    alignItems: 'center',
+                                    gap: '0.25rem',
+                                    padding: '0.35rem 0.65rem',
+                                    fontSize: '0.75rem',
+                                    fontWeight: 600,
+                                    borderRadius: '4px',
+                                    border: 'none',
+                                    backgroundColor: '#166534',
+                                    color: '#fff',
+                                    cursor: 'pointer',
+                                  }}
+                                >
+                                  <Check size={13} /> Lưu
+                                </button>
+                                <button
+                                  type="button"
+                                  onClick={() => setEditingVenue(null)}
+                                  style={{
+                                    display: 'inline-flex',
+                                    alignItems: 'center',
+                                    gap: '0.25rem',
+                                    padding: '0.35rem 0.65rem',
+                                    fontSize: '0.75rem',
+                                    fontWeight: 600,
+                                    borderRadius: '4px',
+                                    border: '1px solid #cfc9bc',
+                                    backgroundColor: '#fff',
+                                    color: '#64748b',
+                                    cursor: 'pointer',
+                                  }}
+                                >
+                                  <X size={13} /> Hủy
+                                </button>
+                              </div>
+                            ) : (
+                              <>
+                                <div>
+                                  <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
+                                    <strong style={{ fontSize: '0.875rem', color: '#1e293b' }}>{venue.name}</strong>
+                                    <span style={{ fontSize: '0.6875rem', padding: '0.1rem 0.4rem', borderRadius: '4px', background: '#e0f2fe', color: '#0369a1', fontWeight: 600 }}>
+                                      {cityName}
+                                    </span>
+                                  </div>
+                                  <small style={{ color: '#64748b', display: 'block', fontSize: '0.75rem', marginTop: '0.125rem' }}>
+                                    {venue.address}
+                                  </small>
+                                </div>
+                                <div style={{ display: 'flex', alignItems: 'center', gap: '0.4rem' }}>
+                                  <button
+                                    type="button"
+                                    disabled={busy}
+                                    onClick={() =>
+                                      setEditingVenue({
+                                        id: venue.id,
+                                        cityId: venue.cityId,
+                                        name: venue.name,
+                                        address: venue.address,
+                                      })
+                                    }
+                                    style={{
+                                      display: 'inline-flex',
+                                      alignItems: 'center',
+                                      gap: '0.25rem',
+                                      padding: '0.3rem 0.6rem',
+                                      fontSize: '0.75rem',
+                                      fontWeight: 600,
+                                      borderRadius: '4px',
+                                      border: '1px solid #cfc9bc',
+                                      backgroundColor: '#fff',
+                                      color: '#0284c7',
+                                      cursor: 'pointer',
+                                    }}
+                                  >
+                                    <Pencil size={13} /> Sửa
+                                  </button>
+                                  <button
+                                    type="button"
+                                    disabled={busy}
+                                    onClick={() => handleDeleteVenue(venue)}
+                                    style={{
+                                      display: 'inline-flex',
+                                      alignItems: 'center',
+                                      gap: '0.25rem',
+                                      padding: '0.3rem 0.6rem',
+                                      fontSize: '0.75rem',
+                                      fontWeight: 600,
+                                      borderRadius: '4px',
+                                      border: '1px solid #fecaca',
+                                      backgroundColor: '#fff',
+                                      color: '#dc2626',
+                                      cursor: 'pointer',
+                                    }}
+                                  >
+                                    <Trash2 size={13} /> Xóa
+                                  </button>
+                                </div>
+                              </>
+                            )}
+                          </div>
+                        );
+                      })}
+                    </div>
+                  )}
+                </div>
+              </div>
+            )}
           </div>
         )}
       </div>
@@ -789,6 +1430,8 @@ type QuickCreateModalProps = {
 };
 
 function QuickCreateModal({ genres, cities, venues, busy, onClose, onSubmit }: QuickCreateModalProps) {
+  const isBackdropMouseDown = useRef(false);
+
   // Step 1: Basic Event info
   const [title, setTitle] = useState('');
   const [description, setDescription] = useState('');
@@ -872,8 +1515,14 @@ function QuickCreateModal({ genres, cities, venues, busy, onClose, onSubmit }: Q
         padding: '1rem',
         overflowY: 'auto',
       }}
-      onClick={(e) => {
-        if (e.target === e.currentTarget) onClose();
+      onMouseDown={(e) => {
+        isBackdropMouseDown.current = e.target === e.currentTarget;
+      }}
+      onMouseUp={(e) => {
+        if (isBackdropMouseDown.current && e.target === e.currentTarget) {
+          onClose();
+        }
+        isBackdropMouseDown.current = false;
       }}
     >
       <div
