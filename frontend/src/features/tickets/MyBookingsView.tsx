@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { AlertCircle, Calendar, CheckCircle2, Clock, MapPin, QrCode, RefreshCw, Ticket, Trash2, X } from 'lucide-react';
 import { bookingsApi } from '../../api/bookingsApi';
 import { ticketsApi } from '../../api/ticketsApi';
@@ -22,6 +22,7 @@ export function MyBookingsView({
   const [activeBooking, setActiveBooking] = useState<Booking | null>(null);
   const [tickets, setTickets] = useState<TicketType[]>([]);
   const [loadingTickets, setLoadingTickets] = useState(false);
+  const isBackdropMouseDown = useRef(false);
 
   const fetchBookings = async () => {
     setLoading(true);
@@ -283,7 +284,19 @@ export function MyBookingsView({
 
       {/* Tickets QR Detail Modal */}
       {activeBooking && (
-        <div className="modal-backdrop" style={{ position: 'fixed', inset: 0, backgroundColor: 'rgba(0, 0, 0, 0.8)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 1000, padding: '1rem' }}>
+        <div
+          className="modal-backdrop"
+          style={{ position: 'fixed', inset: 0, backgroundColor: 'rgba(0, 0, 0, 0.8)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 1000, padding: '1rem' }}
+          onMouseDown={(e) => {
+            isBackdropMouseDown.current = e.target === e.currentTarget;
+          }}
+          onMouseUp={(e) => {
+            if (isBackdropMouseDown.current && e.target === e.currentTarget) {
+              setActiveBooking(null);
+            }
+            isBackdropMouseDown.current = false;
+          }}
+        >
           <div className="modal-content" style={{ background: '#1e293b', border: '1px solid #334155', borderRadius: '12px', padding: '1.75rem', width: '100%', maxWidth: '560px', maxHeight: '90vh', overflowY: 'auto', color: '#f8fafc', position: 'relative' }}>
             <button
               type="button"

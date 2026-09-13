@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { AlertCircle, Eye, EyeOff, Lock, Mail, Sparkles, User as UserIcon, X } from 'lucide-react';
 
 interface AuthDialogProps {
@@ -46,6 +46,7 @@ export function AuthDialog({
     confirmPassword?: string;
     displayName?: string;
   }>({});
+  const isBackdropMouseDown = useRef(false);
 
   // Sync mode when initialMode changes or modal opens
   useEffect(() => {
@@ -163,8 +164,14 @@ export function AuthDialog({
   return (
     <div
       className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/65 backdrop-blur-sm transition-all duration-300"
-      onClick={(e) => {
-        if (e.target === e.currentTarget && !loading) onClose();
+      onMouseDown={(e) => {
+        isBackdropMouseDown.current = e.target === e.currentTarget;
+      }}
+      onMouseUp={(e) => {
+        if (isBackdropMouseDown.current && e.target === e.currentTarget && !loading) {
+          onClose();
+        }
+        isBackdropMouseDown.current = false;
       }}
       role="dialog"
       aria-modal="true"
