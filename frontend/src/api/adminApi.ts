@@ -65,4 +65,27 @@ export const adminApi = {
       method: 'DELETE',
     });
   },
+
+  async quickCreateEvent(payload: {
+    title: string;
+    description: string;
+    genreName?: string;
+    genreId?: string;
+    cityName?: string;
+    cityId?: string;
+    venueName?: string;
+    venueId?: string;
+    venueAddress?: string;
+    startsAt: string;
+    endsAt: string;
+    published?: boolean;
+    superVipPrice?: number;
+    vipPrice?: number;
+    normalPrice?: number;
+  }): Promise<Event> {
+    return apiClient<Event>('/api/admin/events/quick-create', {
+      method: 'POST',
+      body: JSON.stringify(payload),
+    });
+  },
 };
