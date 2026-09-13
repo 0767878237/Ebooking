@@ -1,7 +1,26 @@
 import { useEffect, useMemo, useState, type ReactNode } from 'react';
-import { CalendarPlus, MapPin, Plus, Ticket, Trash2, Users } from 'lucide-react';
+import {
+  Building2,
+  Calendar,
+  Check,
+  ChevronDown,
+  ChevronUp,
+  Clock,
+  Crown,
+  Eye,
+  EyeOff,
+  MapPin,
+  Plus,
+  Search,
+  Sparkles,
+  Star,
+  Tag,
+  Ticket,
+  Trash2,
+  X,
+} from 'lucide-react';
 
-type IdentityRole = 'USER' | 'ORGANIZER' | 'CHECK_IN_STAFF' | 'ADMIN';
+type IdentityRole = 'USER' | 'CHECK_IN_STAFF' | 'ADMIN';
 
 type IdentitySession = {
   key: IdentityRole;
@@ -25,24 +44,43 @@ type City = { id: string; name: string };
 type Venue = { id: string; cityId: string; name: string; address: string };
 type Genre = { id: string; name: string; slug: string };
 type Show = { id: string; venueId: string; venueName: string; startsAt: string; endsAt: string };
-type Event = { id: string; title: string; description: string; category: string; published: boolean; shows: Show[] };
+type Event = {
+  id: string;
+  title: string;
+  description: string;
+  category: string;
+  published: boolean;
+  shows: Show[];
+};
 
 type RequestClient = <T>(path: string, options?: RequestInit) => Promise<T>;
 
 function formatDate(value: string) {
+  if (!value) return '';
   return new Intl.DateTimeFormat('vi-VN', {
     day: '2-digit',
     month: '2-digit',
+    year: 'numeric',
     hour: '2-digit',
     minute: '2-digit',
   }).format(new Date(value));
+}
+
+function formatVnd(amount: number) {
+  return new Intl.NumberFormat('vi-VN').format(amount) + ' đ';
 }
 
 function formToIso(dateValue: string, timeValue: string) {
   if (!dateValue || !timeValue) {
     return '';
   }
-  return new Date(`${dateValue}T${timeValue}:00Z`).toISOString();
+  return new Date(`${dateValue}T${timeValue}:00`).toISOString();
+}
+
+function getTomorrowDateStr() {
+  const d = new Date();
+  d.setDate(d.getDate() + 1);
+  return d.toISOString().split('T')[0];
 }
 
 export function AdminWorkspace({
@@ -52,33 +90,32 @@ export function AdminWorkspace({
   identity: IdentitySession;
   request: RequestClient;
 }) {
-  const canEdit = identity.role === 'ADMIN' || identity.role === 'ORGANIZER';
+  const canEdit = identity.role === 'ADMIN';
   const [cities, setCities] = useState<City[]>([]);
   const [venues, setVenues] = useState<Venue[]>([]);
   const [genres, setGenres] = useState<Genre[]>([]);
   const [events, setEvents] = useState<Event[]>([]);
-  const [selectedCityId, setSelectedCityId] = useState('');
-  const [selectedVenueId, setSelectedVenueId] = useState('');
   const [notice, setNotice] = useState('');
   const [busy, setBusy] = useState(false);
   const [refresh, setRefresh] = useState(0);
 
-  const [cityName, setCityName] = useState('');
-  const [genreName, setGenreName] = useState('');
-  const [genreSlug, setGenreSlug] = useState('');
-  const [venueName, setVenueName] = useState('');
-  const [venueAddress, setVenueAddress] = useState('');
-  const [eventGenreId, setEventGenreId] = useState('');
-  const [eventTitle, setEventTitle] = useState('');
-  const [eventDescription, setEventDescription] = useState('');
-  const [showEventId, setShowEventId] = useState('');
-  const [showVenueId, setShowVenueId] = useState('');
-  const [showDate, setShowDate] = useState('');
-  const [showTime, setShowTime] = useState('19:30');
-  const [showEndTime, setShowEndTime] = useState('21:30');
+  // Filter & Search states
+  const [searchQuery, setSearchQuery] = useState('');
+  const [statusFilter, setStatusFilter] = useState<'all' | 'published' | 'draft'>('all');
 
-  // Refresh all visible catalog data after each write. This keeps the admin
-  // screen truthful without inventing a separate list API that does not exist.
+  // Modal open states
+  const [isQuickCreateOpen, setIsQuickCreateOpen] = useState(false);
+  const [isAdvancedOpen, setIsAdvancedOpen] = useState(false);
+
+  // Advanced individual create states
+  const [advCityName, setAdvCityName] = useState('');
+  const [advGenreName, setAdvGenreName] = useState('');
+  const [advGenreSlug, setAdvGenreSlug] = useState('');
+  const [advVenueCityId, setAdvVenueCityId] = useState('');
+  const [advVenueName, setAdvVenueName] = useState('');
+  const [advVenueAddress, setAdvVenueAddress] = useState('');
+
+  // Refresh all visible catalog data after each write.
   useEffect(() => {
     let cancelled = false;
 
@@ -96,13 +133,11 @@ export function AdminWorkspace({
           setVenues(venuePage.content);
           setGenres(genreDetails);
           setEvents(eventPage.content);
-          setSelectedCityId((current) => current || cityPage.content[0]?.id || '');
-          setSelectedVenueId((current) => current || venuePage.content[0]?.id || '');
-          setShowEventId((current) => current || eventPage.content[0]?.id || '');
+          setAdvVenueCityId((current) => current || cityPage.content[0]?.id || '');
         }
       } catch {
         if (!cancelled) {
-          setNotice('Khong tai duoc du lieu catalog.');
+          setNotice('Không thể tải dữ liệu quản trị catalog.');
         }
       }
     }
@@ -113,139 +148,1265 @@ export function AdminWorkspace({
     };
   }, [request, refresh]);
 
-  const venuesInCity = useMemo(
-    () => venues.filter((venue) => !selectedCityId || venue.cityId === selectedCityId),
-    [selectedCityId, venues],
-  );
+  const filteredEvents = useMemo(() => {
+    return events.filter((ev) => {
+      const matchesSearch =
+        !searchQuery.trim() ||
+        ev.title.toLowerCase().includes(searchQuery.toLowerCase()) ||
+        (ev.category && ev.category.toLowerCase().includes(searchQuery.toLowerCase()));
+
+      const matchesStatus =
+        statusFilter === 'all' ||
+        (statusFilter === 'published' && ev.published) ||
+        (statusFilter === 'draft' && !ev.published);
+
+      return matchesSearch && matchesStatus;
+    });
+  }, [events, searchQuery, statusFilter]);
+
+  const totalShows = useMemo(() => {
+    return events.reduce((sum, ev) => sum + (ev.shows?.length || 0), 0);
+  }, [events]);
 
   async function mutate<T>(label: string, fn: () => Promise<T>) {
     if (!canEdit) {
-      setNotice('Role hien tai khong du quyen thao tac.');
+      setNotice('Bạn không có quyền thực hiện thao tác này. Cần tài khoản ADMIN.');
       return;
     }
     setBusy(true);
     try {
       await fn();
-      setNotice(`${label} thanh cong.`);
+      setNotice(`${label} thành công.`);
       setRefresh((value) => value + 1);
     } catch (error) {
-      setNotice(error instanceof Error ? error.message : `${label} that bai.`);
+      setNotice(error instanceof Error ? error.message : `${label} thất bại.`);
     } finally {
       setBusy(false);
     }
   }
 
+  if (!canEdit) {
+    return (
+      <section className="content standalone" style={{ textAlign: 'center', padding: '4rem 1rem' }}>
+        <div style={{ maxWidth: '500px', margin: '0 auto', background: '#fffdf8', border: '1px solid #dcd6cb', padding: '2rem' }}>
+          <h2 style={{ color: '#db5a39', marginBottom: '1rem' }}>Giới hạn quyền truy cập</h2>
+          <p style={{ color: '#77796e', fontSize: '0.875rem' }}>
+            Trang này chỉ dành cho tài khoản <strong>Quản trị viên (ADMIN)</strong>. Vui lòng đăng nhập với tài khoản ADMIN để thao tác.
+          </p>
+        </div>
+      </section>
+    );
+  }
+
   return (
-    <section className="content standalone">
-      <p className="eyebrow">Operations</p>
-      <h1>Quan ly catalog</h1>
-      <div className="admin-grid">
-        <AdminStat icon={<Ticket />} label="Event" value={String(events.length)} />
-        <AdminStat icon={<MapPin />} label="Venue" value={String(venues.length)} />
-        <AdminStat icon={<Users />} label="City" value={String(cities.length)} />
+    <section className="content standalone" style={{ maxWidth: '1200px', margin: '0 auto', padding: '1.5rem 1rem' }}>
+      {/* Header Banner */}
+      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', flexWrap: 'wrap', gap: '1rem', marginBottom: '1.5rem' }}>
+        <div>
+          <p className="eyebrow" style={{ color: '#db5a39', fontWeight: 600, textTransform: 'uppercase', fontSize: '0.75rem', letterSpacing: '0.05em' }}>
+            Hệ thống quản trị
+          </p>
+          <h1 style={{ fontSize: '1.875rem', fontWeight: 800, color: '#1e293b', margin: '0.25rem 0' }}>
+            Quản lý Sự kiện & Suất diễn
+          </h1>
+          <p style={{ color: '#64748b', fontSize: '0.875rem', margin: 0 }}>
+            Thêm sự kiện nhanh chóng, cấu hình 3 hạng vé (Super VIP, VIP, Thường) và kiểm soát trạng thái xuất bản.
+          </p>
+        </div>
+
+        <button
+          className="primary"
+          onClick={() => setIsQuickCreateOpen(true)}
+          style={{
+            display: 'inline-flex',
+            alignItems: 'center',
+            gap: '0.5rem',
+            padding: '0.75rem 1.25rem',
+            backgroundColor: '#db5a39',
+            color: '#fff',
+            borderRadius: '6px',
+            fontWeight: 600,
+            fontSize: '0.875rem',
+            boxShadow: '0 4px 12px rgba(219, 90, 57, 0.25)',
+            border: 'none',
+            cursor: 'pointer',
+          }}
+        >
+          <Plus size={18} />
+          <span>Thêm sự kiện mới</span>
+        </button>
       </div>
 
-      {notice && <div className="admin-notice">{notice}</div>}
+      {/* Notice Banner */}
+      {notice && (
+        <div
+          className="admin-notice"
+          style={{
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'space-between',
+            padding: '0.75rem 1rem',
+            marginBottom: '1.5rem',
+            backgroundColor: notice.includes('thất bại') || notice.includes('Không thể') ? '#fef2f2' : '#f0fdf4',
+            border: `1px solid ${notice.includes('thất bại') || notice.includes('Không thể') ? '#fecaca' : '#bbf7d0'}`,
+            color: notice.includes('thất bại') || notice.includes('Không thể') ? '#991b1b' : '#166534',
+            borderRadius: '6px',
+            fontSize: '0.875rem',
+          }}
+        >
+          <span>{notice}</span>
+          <button
+            onClick={() => setNotice('')}
+            style={{ background: 'transparent', border: 'none', cursor: 'pointer', color: 'inherit' }}
+          >
+            <X size={16} />
+          </button>
+        </div>
+      )}
 
-      <div className="admin-layout">
-        <section className="admin-panel">
-          <h2>Tao moi</h2>
-          <div className="admin-form-grid">
-            <label>City<input className="text-input" value={cityName} onChange={(e) => setCityName(e.target.value)} /></label>
-            <button className="primary" disabled={busy || !cityName.trim()} onClick={() => mutate('City', async () => {
-              await request('/api/admin/cities', { method: 'POST', body: JSON.stringify({ name: cityName.trim() }) });
-              setCityName('');
-            })}><Plus size={16} />City</button>
+      {/* Statistics Cards */}
+      <div
+        style={{
+          display: 'grid',
+          gridTemplateColumns: 'repeat(auto-fit, minmax(220px, 1fr))',
+          gap: '1rem',
+          marginBottom: '2rem',
+        }}
+      >
+        <AdminStat icon={<Ticket size={24} />} label="Tổng số sự kiện" value={String(events.length)} />
+        <AdminStat
+          icon={<Sparkles size={24} />}
+          label="Đang xuất bản"
+          value={String(events.filter((e) => e.published).length)}
+        />
+        <AdminStat icon={<Calendar size={24} />} label="Tổng suất diễn" value={String(totalShows)} />
+        <AdminStat
+          icon={<MapPin size={24} />}
+          label="Địa điểm / Thành phố"
+          value={`${venues.length} điểm / ${cities.length} TP`}
+        />
+      </div>
 
-            <label>Genre<input className="text-input" value={genreName} onChange={(e) => setGenreName(e.target.value)} /></label>
-            <label>Slug<input className="text-input" value={genreSlug} onChange={(e) => setGenreSlug(e.target.value)} /></label>
-            <button className="primary" disabled={busy || !genreName.trim() || !genreSlug.trim()} onClick={() => mutate('Genre', async () => {
-              await request('/api/admin/genres', { method: 'POST', body: JSON.stringify({ name: genreName.trim(), slug: genreSlug.trim() }) });
-              setGenreName('');
-              setGenreSlug('');
-            })}><Plus size={16} />Genre</button>
-
-            <label>Venue city
-              <select className="text-input" value={selectedCityId} onChange={(e) => setSelectedCityId(e.target.value)}>
-                {cities.map((city) => <option key={city.id} value={city.id}>{city.name}</option>)}
-              </select>
-            </label>
-            <label>Venue name<input className="text-input" value={venueName} onChange={(e) => setVenueName(e.target.value)} /></label>
-            <label>Address<input className="text-input" value={venueAddress} onChange={(e) => setVenueAddress(e.target.value)} /></label>
-            <button className="primary" disabled={busy || !selectedCityId || !venueName.trim() || !venueAddress.trim()} onClick={() => mutate('Venue', async () => {
-              await request('/api/admin/venues', { method: 'POST', body: JSON.stringify({ cityId: selectedCityId, name: venueName.trim(), address: venueAddress.trim() }) });
-              setVenueName('');
-              setVenueAddress('');
-            })}><Plus size={16} />Venue</button>
-
-            <label>Event genre
-              <select className="text-input" value={eventGenreId} onChange={(e) => setEventGenreId(e.target.value)}>
-                <option value="">Chon genre</option>
-                {genres.map((genre) => <option key={genre.id} value={genre.id}>{genre.name}</option>)}
-              </select>
-            </label>
-            <label>Title<input className="text-input" value={eventTitle} onChange={(e) => setEventTitle(e.target.value)} /></label>
-            <label>Description<textarea className="text-input" rows={3} value={eventDescription} onChange={(e) => setEventDescription(e.target.value)} /></label>
-            <button className="primary" disabled={busy || !eventGenreId || !eventTitle.trim() || !eventDescription.trim()} onClick={() => mutate('Event', async () => {
-              // The select displays the genre name, but the API must receive its UUID.
-              await request('/api/admin/events', { method: 'POST', body: JSON.stringify({ genreId: eventGenreId, title: eventTitle.trim(), description: eventDescription.trim() }) });
-              setEventTitle('');
-              setEventDescription('');
-            })}><Plus size={16} />Event</button>
-
-            <label>Show event
-              <select className="text-input" value={showEventId} onChange={(e) => setShowEventId(e.target.value)}>
-                <option value="">Chon event</option>
-                {events.map((event) => <option key={event.id} value={event.id}>{event.title}</option>)}
-              </select>
-            </label>
-            <label>Show venue
-              <select className="text-input" value={showVenueId} onChange={(e) => setShowVenueId(e.target.value)}>
-                <option value="">Chon venue</option>
-                {venuesInCity.map((venue) => <option key={venue.id} value={venue.id}>{venue.name}</option>)}
-              </select>
-            </label>
-            <label>Start<input className="text-input" type="date" value={showDate} onChange={(e) => setShowDate(e.target.value)} /></label>
-            <label>Time<input className="text-input" type="time" value={showTime} onChange={(e) => setShowTime(e.target.value)} /></label>
-            <label>End<input className="text-input" type="time" value={showEndTime} onChange={(e) => setShowEndTime(e.target.value)} /></label>
-            <button className="primary" disabled={busy || !showEventId || !showVenueId || !showDate} onClick={() => mutate('Show', async () => {
-              const startsAt = formToIso(showDate, showTime);
-              const endsAt = formToIso(showDate, showEndTime);
-              await request('/api/admin/shows', { method: 'POST', body: JSON.stringify({ eventId: showEventId, venueId: showVenueId, startsAt, endsAt }) });
-              setShowDate('');
-            })}><CalendarPlus size={16} />Show</button>
+      {/* Main Events Management Section */}
+      <div style={{ background: '#fffdf8', border: '1px solid #dcd6cb', borderRadius: '8px', padding: '1.5rem', marginBottom: '2rem' }}>
+        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: '1rem', marginBottom: '1.25rem' }}>
+          <div>
+            <h2 style={{ fontSize: '1.25rem', fontWeight: 700, margin: 0, color: '#1e293b' }}>
+              Danh sách sự kiện ({filteredEvents.length})
+            </h2>
+            <small style={{ color: '#64748b' }}>Quản lý đóng/mở bán vé, kiểm tra số suất diễn và cập nhật trạng thái</small>
           </div>
-        </section>
 
-        <section className="admin-panel">
-          <h2>Hien tai</h2>
-          <div className="admin-list">
-            {events.map((event) => (
-              <article key={event.id} className="admin-item">
-                <div>
-                  <strong>{event.title}</strong>
-                  <small>{event.published ? 'Published' : 'Draft'} · {event.shows.length} show</small>
-                </div>
-                <div className="admin-actions">
-                  <button className="secondary" onClick={() => mutate('Publication', async () => {
-                    await request(`/api/admin/events/${event.id}/publication`, {
-                      method: 'PATCH',
-                      body: JSON.stringify({ published: true }),
+          <div style={{ display: 'flex', alignItems: 'center', gap: '0.75rem', flexWrap: 'wrap' }}>
+            {/* Search Input */}
+            <div style={{ position: 'relative' }}>
+              <Search size={16} style={{ position: 'absolute', left: '10px', top: '50%', transform: 'translateY(-50%)', color: '#94a3b8' }} />
+              <input
+                type="text"
+                placeholder="Tìm tên sự kiện, danh mục..."
+                value={searchQuery}
+                onChange={(e) => setSearchQuery(e.target.value)}
+                style={{
+                  padding: '0.5rem 0.75rem 0.5rem 2.25rem',
+                  fontSize: '0.8125rem',
+                  border: '1px solid #cfc9bc',
+                  borderRadius: '6px',
+                  outline: 'none',
+                  background: '#fff',
+                  width: '230px',
+                }}
+              />
+            </div>
+
+            {/* Filter Tabs */}
+            <div style={{ display: 'inline-flex', border: '1px solid #cfc9bc', borderRadius: '6px', overflow: 'hidden' }}>
+              <button
+                type="button"
+                onClick={() => setStatusFilter('all')}
+                style={{
+                  padding: '0.45rem 0.8rem',
+                  fontSize: '0.75rem',
+                  fontWeight: 600,
+                  border: 'none',
+                  background: statusFilter === 'all' ? '#1e293b' : '#fff',
+                  color: statusFilter === 'all' ? '#fff' : '#64748b',
+                  cursor: 'pointer',
+                }}
+              >
+                Tất cả
+              </button>
+              <button
+                type="button"
+                onClick={() => setStatusFilter('published')}
+                style={{
+                  padding: '0.45rem 0.8rem',
+                  fontSize: '0.75rem',
+                  fontWeight: 600,
+                  border: 'none',
+                  borderLeft: '1px solid #cfc9bc',
+                  background: statusFilter === 'published' ? '#166534' : '#fff',
+                  color: statusFilter === 'published' ? '#fff' : '#64748b',
+                  cursor: 'pointer',
+                }}
+              >
+                Đã xuất bản
+              </button>
+              <button
+                type="button"
+                onClick={() => setStatusFilter('draft')}
+                style={{
+                  padding: '0.45rem 0.8rem',
+                  fontSize: '0.75rem',
+                  fontWeight: 600,
+                  border: 'none',
+                  borderLeft: '1px solid #cfc9bc',
+                  background: statusFilter === 'draft' ? '#9a3412' : '#fff',
+                  color: statusFilter === 'draft' ? '#fff' : '#64748b',
+                  cursor: 'pointer',
+                }}
+              >
+                Bản nháp
+              </button>
+            </div>
+          </div>
+        </div>
+
+        {/* Events Table / List */}
+        {filteredEvents.length === 0 ? (
+          <div style={{ textAlign: 'center', padding: '3rem 1rem', color: '#94a3b8' }}>
+            <Ticket size={40} style={{ margin: '0 auto 0.75rem', opacity: 0.4 }} />
+            <p style={{ margin: 0, fontWeight: 500 }}>Không tìm thấy sự kiện nào phù hợp.</p>
+            <button
+              className="primary"
+              onClick={() => setIsQuickCreateOpen(true)}
+              style={{
+                marginTop: '1rem',
+                padding: '0.5rem 1rem',
+                backgroundColor: '#db5a39',
+                color: '#fff',
+                borderRadius: '6px',
+                border: 'none',
+                cursor: 'pointer',
+                fontSize: '0.8125rem',
+              }}
+            >
+              + Tạo sự kiện mới ngay
+            </button>
+          </div>
+        ) : (
+          <div style={{ display: 'grid', gap: '0.75rem' }}>
+            {filteredEvents.map((event) => {
+              const primaryShow = event.shows?.[0];
+              return (
+                <article
+                  key={event.id}
+                  style={{
+                    display: 'flex',
+                    alignItems: 'center',
+                    justifyContent: 'space-between',
+                    flexWrap: 'wrap',
+                    gap: '1rem',
+                    padding: '1rem 1.25rem',
+                    border: '1px solid #e0dacf',
+                    background: '#faf7ef',
+                    borderRadius: '8px',
+                    transition: 'all 0.15s ease',
+                  }}
+                >
+                  {/* Left: Info */}
+                  <div style={{ flex: '1 1 300px' }}>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', marginBottom: '0.25rem' }}>
+                      <strong style={{ fontSize: '1rem', color: '#0f172a' }}>{event.title}</strong>
+                      {event.category && (
+                        <span
+                          style={{
+                            fontSize: '0.6875rem',
+                            fontWeight: 600,
+                            padding: '0.125rem 0.5rem',
+                            borderRadius: '9999px',
+                            background: '#e2e8f0',
+                            color: '#475569',
+                          }}
+                        >
+                          {event.category}
+                        </span>
+                      )}
+                    </div>
+                    <p style={{ margin: 0, color: '#64748b', fontSize: '0.8125rem', lineHeight: 1.4, maxHeight: '2.8em', overflow: 'hidden', textOverflow: 'ellipsis' }}>
+                      {event.description || 'Chưa có mô tả'}
+                    </p>
+                    {primaryShow && (
+                      <div style={{ display: 'flex', alignItems: 'center', gap: '1rem', marginTop: '0.35rem', fontSize: '0.75rem', color: '#77796e' }}>
+                        <span style={{ display: 'inline-flex', alignItems: 'center', gap: '0.25rem' }}>
+                          <MapPin size={13} style={{ color: '#db5a39' }} /> {primaryShow.venueName}
+                        </span>
+                        <span style={{ display: 'inline-flex', alignItems: 'center', gap: '0.25rem' }}>
+                          <Clock size={13} /> {formatDate(primaryShow.startsAt)}
+                        </span>
+                        <span>· {event.shows.length} suất diễn</span>
+                      </div>
+                    )}
+                  </div>
+
+                  {/* Center: Status Badge */}
+                  <div>
+                    {event.published ? (
+                      <span
+                        style={{
+                          display: 'inline-flex',
+                          alignItems: 'center',
+                          gap: '0.35rem',
+                          fontSize: '0.75rem',
+                          fontWeight: 700,
+                          padding: '0.25rem 0.65rem',
+                          borderRadius: '9999px',
+                          backgroundColor: '#dcfce7',
+                          color: '#15803d',
+                          border: '1px solid #bbf7d0',
+                        }}
+                      >
+                        <span style={{ width: '6px', height: '6px', borderRadius: '50%', backgroundColor: '#15803d' }} />
+                        Đã xuất bản
+                      </span>
+                    ) : (
+                      <span
+                        style={{
+                          display: 'inline-flex',
+                          alignItems: 'center',
+                          gap: '0.35rem',
+                          fontSize: '0.75rem',
+                          fontWeight: 700,
+                          padding: '0.25rem 0.65rem',
+                          borderRadius: '9999px',
+                          backgroundColor: '#fef3c7',
+                          color: '#b45309',
+                          border: '1px solid #fde68a',
+                        }}
+                      >
+                        <span style={{ width: '6px', height: '6px', borderRadius: '50%', backgroundColor: '#b45309' }} />
+                        Bản nháp
+                      </span>
+                    )}
+                  </div>
+
+                  {/* Right: Actions */}
+                  <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
+                    <button
+                      type="button"
+                      disabled={busy}
+                      onClick={() =>
+                        mutate(event.published ? 'Gỡ xuất bản' : 'Xuất bản', async () => {
+                          await request(`/api/admin/events/${event.id}/publication`, {
+                            method: 'PATCH',
+                            body: JSON.stringify({ published: !event.published }),
+                          });
+                        })
+                      }
+                      style={{
+                        display: 'inline-flex',
+                        alignItems: 'center',
+                        gap: '0.35rem',
+                        padding: '0.4rem 0.75rem',
+                        fontSize: '0.75rem',
+                        fontWeight: 600,
+                        borderRadius: '6px',
+                        border: '1px solid #cfc9bc',
+                        backgroundColor: '#fff',
+                        color: event.published ? '#b45309' : '#15803d',
+                        cursor: 'pointer',
+                      }}
+                      title={event.published ? 'Chuyển về trạng thái bản nháp' : 'Xuất bản để người dùng có thể mua vé'}
+                    >
+                      {event.published ? <EyeOff size={14} /> : <Eye size={14} />}
+                      <span>{event.published ? 'Gỡ' : 'Xuất bản'}</span>
+                    </button>
+
+                    <button
+                      type="button"
+                      disabled={busy}
+                      onClick={() => {
+                        if (window.confirm(`Bạn có chắc chắn muốn xóa sự kiện "${event.title}" không?`)) {
+                          mutate('Xóa sự kiện', async () => {
+                            await request(`/api/admin/events/${event.id}`, { method: 'DELETE' });
+                          });
+                        }
+                      }}
+                      style={{
+                        display: 'inline-flex',
+                        alignItems: 'center',
+                        gap: '0.35rem',
+                        padding: '0.4rem 0.65rem',
+                        fontSize: '0.75rem',
+                        fontWeight: 600,
+                        borderRadius: '6px',
+                        border: '1px solid #fecaca',
+                        backgroundColor: '#fff',
+                        color: '#dc2626',
+                        cursor: 'pointer',
+                      }}
+                      title="Xóa sự kiện"
+                    >
+                      <Trash2 size={14} />
+                      <span>Xóa</span>
+                    </button>
+                  </div>
+                </article>
+              );
+            })}
+          </div>
+        )}
+      </div>
+
+      {/* Advanced Accordion for Individual Catalog Items */}
+      <div style={{ background: '#fffdf8', border: '1px solid #dcd6cb', borderRadius: '8px', overflow: 'hidden' }}>
+        <button
+          type="button"
+          onClick={() => setIsAdvancedOpen((prev) => !prev)}
+          style={{
+            width: '100%',
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'space-between',
+            padding: '1rem 1.25rem',
+            background: '#f8fafc',
+            border: 'none',
+            borderBottom: isAdvancedOpen ? '1px solid #dcd6cb' : 'none',
+            cursor: 'pointer',
+            textAlign: 'left',
+          }}
+        >
+          <span style={{ fontWeight: 600, fontSize: '0.875rem', color: '#475569', display: 'inline-flex', alignItems: 'center', gap: '0.5rem' }}>
+            <Building2 size={16} />
+            Cấu hình nâng cao: Quản lý riêng Thành phố, Thể loại & Địa điểm
+          </span>
+          {isAdvancedOpen ? <ChevronUp size={16} /> : <ChevronDown size={16} />}
+        </button>
+
+        {isAdvancedOpen && (
+          <div style={{ padding: '1.5rem', display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(280px, 1fr))', gap: '1.5rem' }}>
+            {/* Create City */}
+            <div style={{ background: '#fff', padding: '1rem', border: '1px solid #e2e8f0', borderRadius: '6px' }}>
+              <h3 style={{ fontSize: '0.875rem', fontWeight: 700, margin: '0 0 0.75rem', color: '#1e293b' }}>Thêm Thành phố</h3>
+              <input
+                className="text-input"
+                placeholder="Tên thành phố (VD: Cần Thơ)"
+                value={advCityName}
+                onChange={(e) => setAdvCityName(e.target.value)}
+              />
+              <button
+                className="primary"
+                disabled={busy || !advCityName.trim()}
+                onClick={() =>
+                  mutate('Tạo thành phố', async () => {
+                    await request('/api/admin/cities', {
+                      method: 'POST',
+                      body: JSON.stringify({ name: advCityName.trim() }),
                     });
-                  })}>Publish</button>
-                  <button className="secondary" onClick={() => mutate('Event delete', async () => {
-                    await request(`/api/admin/events/${event.id}`, { method: 'DELETE' });
-                  })}><Trash2 size={14} />Xoa</button>
-                </div>
-              </article>
-            ))}
+                    setAdvCityName('');
+                  })
+                }
+                style={{ width: '100%', padding: '0.5rem', fontSize: '0.75rem' }}
+              >
+                <Plus size={14} /> Thêm Thành phố
+              </button>
+            </div>
+
+            {/* Create Genre */}
+            <div style={{ background: '#fff', padding: '1rem', border: '1px solid #e2e8f0', borderRadius: '6px' }}>
+              <h3 style={{ fontSize: '0.875rem', fontWeight: 700, margin: '0 0 0.75rem', color: '#1e293b' }}>Thêm Thể loại</h3>
+              <input
+                className="text-input"
+                placeholder="Tên thể loại (VD: Hòa nhạc thính phòng)"
+                value={advGenreName}
+                onChange={(e) => {
+                  setAdvGenreName(e.target.value);
+                  if (!advGenreSlug) {
+                    setAdvGenreSlug(
+                      e.target.value
+                        .toLowerCase()
+                        .normalize('NFD')
+                        .replace(/[\u0300-\u036f]/g, '')
+                        .replace(/[đĐ]/g, 'd')
+                        .replace(/[^a-z0-9]+/g, '-')
+                        .replace(/^-+|-+$/g, '')
+                    );
+                  }
+                }}
+              />
+              <input
+                className="text-input"
+                placeholder="Slug (VD: hoa-nhac-thinh-phong)"
+                value={advGenreSlug}
+                onChange={(e) => setAdvGenreSlug(e.target.value)}
+              />
+              <button
+                className="primary"
+                disabled={busy || !advGenreName.trim() || !advGenreSlug.trim()}
+                onClick={() =>
+                  mutate('Tạo thể loại', async () => {
+                    await request('/api/admin/genres', {
+                      method: 'POST',
+                      body: JSON.stringify({ name: advGenreName.trim(), slug: advGenreSlug.trim() }),
+                    });
+                    setAdvGenreName('');
+                    setAdvGenreSlug('');
+                  })
+                }
+                style={{ width: '100%', padding: '0.5rem', fontSize: '0.75rem' }}
+              >
+                <Plus size={14} /> Thêm Thể loại
+              </button>
+            </div>
+
+            {/* Create Venue */}
+            <div style={{ background: '#fff', padding: '1rem', border: '1px solid #e2e8f0', borderRadius: '6px' }}>
+              <h3 style={{ fontSize: '0.875rem', fontWeight: 700, margin: '0 0 0.75rem', color: '#1e293b' }}>Thêm Địa điểm</h3>
+              <select
+                className="text-input"
+                value={advVenueCityId}
+                onChange={(e) => setAdvVenueCityId(e.target.value)}
+              >
+                <option value="">Chọn thành phố</option>
+                {cities.map((city) => (
+                  <option key={city.id} value={city.id}>
+                    {city.name}
+                  </option>
+                ))}
+              </select>
+              <input
+                className="text-input"
+                placeholder="Tên địa điểm (VD: Sân vận động Mỹ Đình)"
+                value={advVenueName}
+                onChange={(e) => setAdvVenueName(e.target.value)}
+              />
+              <input
+                className="text-input"
+                placeholder="Địa chỉ cụ thể"
+                value={advVenueAddress}
+                onChange={(e) => setAdvVenueAddress(e.target.value)}
+              />
+              <button
+                className="primary"
+                disabled={busy || !advVenueCityId || !advVenueName.trim() || !advVenueAddress.trim()}
+                onClick={() =>
+                  mutate('Tạo địa điểm', async () => {
+                    await request('/api/admin/venues', {
+                      method: 'POST',
+                      body: JSON.stringify({
+                        cityId: advVenueCityId,
+                        name: advVenueName.trim(),
+                        address: advVenueAddress.trim(),
+                      }),
+                    });
+                    setAdvVenueName('');
+                    setAdvVenueAddress('');
+                  })
+                }
+                style={{ width: '100%', padding: '0.5rem', fontSize: '0.75rem' }}
+              >
+                <Plus size={14} /> Thêm Địa điểm
+              </button>
+            </div>
           </div>
-        </section>
+        )}
       </div>
+
+      {/* Quick Create Event Modal */}
+      {isQuickCreateOpen && (
+        <QuickCreateModal
+          genres={genres}
+          cities={cities}
+          venues={venues}
+          busy={busy}
+          onClose={() => setIsQuickCreateOpen(false)}
+          onSubmit={async (payload) => {
+            await mutate('Tạo sự kiện & Sơ đồ giá vé', async () => {
+              await request('/api/admin/events/quick-create', {
+                method: 'POST',
+                body: JSON.stringify(payload),
+              });
+              setIsQuickCreateOpen(false);
+            });
+          }}
+        />
+      )}
     </section>
   );
 }
 
 function AdminStat({ icon, label, value }: { icon: ReactNode; label: string; value: string }) {
-  return <div className="admin-stat">{icon}<small>{label}</small><strong>{value}</strong></div>;
+  return (
+    <div
+      className="admin-stat"
+      style={{
+        display: 'flex',
+        alignItems: 'center',
+        gap: '1rem',
+        padding: '1.25rem',
+        background: '#fffdf8',
+        border: '1px solid #dcd6cb',
+        borderRadius: '8px',
+      }}
+    >
+      <div style={{ color: '#db5a39', background: '#fff2ee', padding: '0.75rem', borderRadius: '8px' }}>
+        {icon}
+      </div>
+      <div>
+        <small style={{ display: 'block', color: '#64748b', fontSize: '0.75rem', fontWeight: 600 }}>{label}</small>
+        <strong style={{ fontSize: '1.5rem', fontWeight: 800, color: '#0f172a' }}>{value}</strong>
+      </div>
+    </div>
+  );
+}
+
+// -------------------------------------------------------------------------
+// Quick Create Event Modal with 3-tier pricing (SUPER VIP, VIP, NORMAL)
+// -------------------------------------------------------------------------
+
+type QuickCreateModalProps = {
+  genres: Genre[];
+  cities: City[];
+  venues: Venue[];
+  busy: boolean;
+  onClose: () => void;
+  onSubmit: (payload: {
+    title: string;
+    description: string;
+    genreName?: string;
+    genreId?: string;
+    cityName?: string;
+    cityId?: string;
+    venueName?: string;
+    venueId?: string;
+    venueAddress?: string;
+    startsAt: string;
+    endsAt: string;
+    published: boolean;
+    superVipPrice: number;
+    vipPrice: number;
+    normalPrice: number;
+  }) => Promise<void>;
+};
+
+function QuickCreateModal({ genres, cities, venues, busy, onClose, onSubmit }: QuickCreateModalProps) {
+  // Step 1: Basic Event info
+  const [title, setTitle] = useState('');
+  const [description, setDescription] = useState('');
+  const [genreName, setGenreName] = useState(genres[0]?.name || 'Ca nhạc');
+
+  // Step 2: Venue & Location info
+  const [cityName, setCityName] = useState(cities[0]?.name || 'Hà Nội');
+  const [venueName, setVenueName] = useState(venues[0]?.name || 'Nhà hát Lớn');
+  const [venueAddress, setVenueAddress] = useState(venues[0]?.address || '1 Tràng Tiền, Hoàn Kiếm, Hà Nội');
+
+  // Step 3: Date & Showtime
+  const [date, setDate] = useState(getTomorrowDateStr());
+  const [timeStart, setTimeStart] = useState('19:30');
+  const [timeEnd, setTimeEnd] = useState('22:00');
+
+  // Step 4: 3-tier Pricing
+  const [superVipPrice, setSuperVipPrice] = useState(500000);
+  const [vipPrice, setVipPrice] = useState(300000);
+  const [normalPrice, setNormalPrice] = useState(150000);
+
+  // Step 5: Options
+  const [published, setPublished] = useState(true);
+
+  // Quick genre selector tags
+  const popularGenres = ['Ca nhạc', 'EDM Concert', 'Hài kịch', 'Hội thảo', 'Kịch nghệ', 'Thể thao'];
+
+  // Update venue address if user chooses an existing venue name
+  const handleVenueChange = (name: string) => {
+    setVenueName(name);
+    const matched = venues.find((v) => v.name.toLowerCase() === name.toLowerCase());
+    if (matched) {
+      setVenueAddress(matched.address);
+      const matchedCity = cities.find((c) => c.id === matched.cityId);
+      if (matchedCity) {
+        setCityName(matchedCity.name);
+      }
+    }
+  };
+
+  const handleSubmit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!title.trim()) {
+      alert('Vui lòng nhập tên sự kiện');
+      return;
+    }
+    if (!date || !timeStart || !timeEnd) {
+      alert('Vui lòng chọn ngày và giờ biểu diễn');
+      return;
+    }
+
+    const startsAt = formToIso(date, timeStart);
+    const endsAt = formToIso(date, timeEnd);
+
+    await onSubmit({
+      title: title.trim(),
+      description: description.trim() || `Sự kiện ${title.trim()} tổ chức tại ${venueName.trim()}`,
+      genreName: genreName.trim(),
+      cityName: cityName.trim(),
+      venueName: venueName.trim(),
+      venueAddress: venueAddress.trim() || `${venueName.trim()}, ${cityName.trim()}`,
+      startsAt,
+      endsAt,
+      published,
+      superVipPrice: Number(superVipPrice) || 500000,
+      vipPrice: Number(vipPrice) || 300000,
+      normalPrice: Number(normalPrice) || 150000,
+    });
+  };
+
+  return (
+    <div
+      style={{
+        position: 'fixed',
+        inset: 0,
+        zIndex: 9999,
+        backgroundColor: 'rgba(15, 23, 42, 0.65)',
+        backdropFilter: 'blur(4px)',
+        display: 'flex',
+        alignItems: 'center',
+        justifyContent: 'center',
+        padding: '1rem',
+        overflowY: 'auto',
+      }}
+      onClick={(e) => {
+        if (e.target === e.currentTarget) onClose();
+      }}
+    >
+      <div
+        style={{
+          width: '100%',
+          maxWidth: '720px',
+          maxHeight: '90vh',
+          backgroundColor: '#fffdf8',
+          border: '1px solid #dcd6cb',
+          borderRadius: '12px',
+          boxShadow: '0 25px 50px -12px rgba(0, 0, 0, 0.25)',
+          display: 'flex',
+          flexDirection: 'column',
+          overflow: 'hidden',
+        }}
+      >
+        {/* Modal Header */}
+        <div
+          style={{
+            padding: '1.25rem 1.5rem',
+            borderBottom: '1px solid #e2e8f0',
+            background: '#faf7ef',
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'space-between',
+          }}
+        >
+          <div style={{ display: 'flex', alignItems: 'center', gap: '0.75rem' }}>
+            <div style={{ backgroundColor: '#db5a39', color: '#fff', padding: '0.5rem', borderRadius: '8px' }}>
+              <Ticket size={20} />
+            </div>
+            <div>
+              <h2 style={{ fontSize: '1.125rem', fontWeight: 800, margin: 0, color: '#0f172a' }}>
+                Thêm sự kiện mới & Cấu hình giá vé
+              </h2>
+              <p style={{ fontSize: '0.75rem', color: '#64748b', margin: '0.125rem 0 0' }}>
+                Hệ thống tự động thiết lập địa điểm, suất diễn và tạo sơ đồ ghế theo 3 hạng vé
+              </p>
+            </div>
+          </div>
+
+          <button
+            type="button"
+            onClick={onClose}
+            style={{ background: 'transparent', border: 'none', cursor: 'pointer', color: '#94a3b8', padding: '0.25rem' }}
+          >
+            <X size={20} />
+          </button>
+        </div>
+
+        {/* Modal Body Form */}
+        <form onSubmit={handleSubmit} style={{ padding: '1.5rem', overflowY: 'auto', display: 'grid', gap: '1.25rem' }}>
+          {/* Section 1: Thông tin sự kiện */}
+          <div style={{ padding: '1rem', background: '#fff', border: '1px solid #e0dacf', borderRadius: '8px' }}>
+            <h3 style={{ fontSize: '0.875rem', fontWeight: 700, margin: '0 0 0.75rem', color: '#1e293b', display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
+              <Tag size={16} style={{ color: '#db5a39' }} /> 1. Thông tin sự kiện
+            </h3>
+
+            <div style={{ display: 'grid', gap: '0.75rem' }}>
+              <div>
+                <label style={{ display: 'block', fontSize: '0.75rem', fontWeight: 600, color: '#475569', marginBottom: '0.25rem' }}>
+                  Tên sự kiện <span style={{ color: '#dc2626' }}>*</span>
+                </label>
+                <input
+                  type="text"
+                  required
+                  placeholder="VD: Live Concert Sky Tour 2026, Hà Anh Tuấn..."
+                  value={title}
+                  onChange={(e) => setTitle(e.target.value)}
+                  style={{
+                    width: '100%',
+                    padding: '0.625rem 0.75rem',
+                    fontSize: '0.875rem',
+                    border: '1px solid #cfc9bc',
+                    borderRadius: '6px',
+                    outline: 'none',
+                    background: '#fffdf8',
+                  }}
+                />
+              </div>
+
+              <div>
+                <label style={{ display: 'block', fontSize: '0.75rem', fontWeight: 600, color: '#475569', marginBottom: '0.25rem' }}>
+                  Thể loại / Danh mục
+                </label>
+                <input
+                  type="text"
+                  placeholder="VD: Ca nhạc, EDM Concert, Hài kịch..."
+                  value={genreName}
+                  onChange={(e) => setGenreName(e.target.value)}
+                  list="genre-suggestions"
+                  style={{
+                    width: '100%',
+                    padding: '0.5rem 0.75rem',
+                    fontSize: '0.8125rem',
+                    border: '1px solid #cfc9bc',
+                    borderRadius: '6px',
+                    outline: 'none',
+                    background: '#fffdf8',
+                  }}
+                />
+                <datalist id="genre-suggestions">
+                  {genres.map((g) => (
+                    <option key={g.id} value={g.name} />
+                  ))}
+                  {popularGenres.map((pg) => (
+                    <option key={pg} value={pg} />
+                  ))}
+                </datalist>
+                <div style={{ display: 'flex', gap: '0.35rem', flexWrap: 'wrap', marginTop: '0.35rem' }}>
+                  {popularGenres.map((pg) => (
+                    <button
+                      key={pg}
+                      type="button"
+                      onClick={() => setGenreName(pg)}
+                      style={{
+                        padding: '0.2rem 0.5rem',
+                        fontSize: '0.6875rem',
+                        border: '1px solid #e2e8f0',
+                        borderRadius: '4px',
+                        background: genreName === pg ? '#f1f5f9' : '#fff',
+                        fontWeight: genreName === pg ? 600 : 400,
+                        color: genreName === pg ? '#0f172a' : '#64748b',
+                        cursor: 'pointer',
+                      }}
+                    >
+                      {pg}
+                    </button>
+                  ))}
+                </div>
+              </div>
+
+              <div>
+                <label style={{ display: 'block', fontSize: '0.75rem', fontWeight: 600, color: '#475569', marginBottom: '0.25rem' }}>
+                  Mô tả sự kiện
+                </label>
+                <textarea
+                  rows={2}
+                  placeholder="Giới thiệu nội dung sự kiện, dàn nghệ sĩ khách mời, quy định tham gia..."
+                  value={description}
+                  onChange={(e) => setDescription(e.target.value)}
+                  style={{
+                    width: '100%',
+                    padding: '0.5rem 0.75rem',
+                    fontSize: '0.8125rem',
+                    border: '1px solid #cfc9bc',
+                    borderRadius: '6px',
+                    outline: 'none',
+                    background: '#fffdf8',
+                    resize: 'vertical',
+                  }}
+                />
+              </div>
+            </div>
+          </div>
+
+          {/* Section 2: Địa điểm & Thời gian */}
+          <div style={{ padding: '1rem', background: '#fff', border: '1px solid #e0dacf', borderRadius: '8px' }}>
+            <h3 style={{ fontSize: '0.875rem', fontWeight: 700, margin: '0 0 0.75rem', color: '#1e293b', display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
+              <MapPin size={16} style={{ color: '#db5a39' }} /> 2. Địa điểm & Thời gian tổ chức
+            </h3>
+
+            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))', gap: '0.75rem', marginBottom: '0.75rem' }}>
+              <div>
+                <label style={{ display: 'block', fontSize: '0.75rem', fontWeight: 600, color: '#475569', marginBottom: '0.25rem' }}>
+                  Thành phố <span style={{ color: '#dc2626' }}>*</span>
+                </label>
+                <input
+                  type="text"
+                  required
+                  placeholder="Hà Nội, TP. Hồ Chí Minh..."
+                  value={cityName}
+                  onChange={(e) => setCityName(e.target.value)}
+                  list="city-suggestions"
+                  style={{
+                    width: '100%',
+                    padding: '0.5rem 0.75rem',
+                    fontSize: '0.8125rem',
+                    border: '1px solid #cfc9bc',
+                    borderRadius: '6px',
+                    outline: 'none',
+                    background: '#fffdf8',
+                  }}
+                />
+                <datalist id="city-suggestions">
+                  {cities.map((c) => (
+                    <option key={c.id} value={c.name} />
+                  ))}
+                  <option value="Hà Nội" />
+                  <option value="TP. Hồ Chí Minh" />
+                  <option value="Đà Nẵng" />
+                  <option value="Cần Thơ" />
+                </datalist>
+              </div>
+
+              <div>
+                <label style={{ display: 'block', fontSize: '0.75rem', fontWeight: 600, color: '#475569', marginBottom: '0.25rem' }}>
+                  Tên địa điểm <span style={{ color: '#dc2626' }}>*</span>
+                </label>
+                <input
+                  type="text"
+                  required
+                  placeholder="VD: Nhà hát Lớn, SVĐ Quân Khu 7..."
+                  value={venueName}
+                  onChange={(e) => handleVenueChange(e.target.value)}
+                  list="venue-suggestions"
+                  style={{
+                    width: '100%',
+                    padding: '0.5rem 0.75rem',
+                    fontSize: '0.8125rem',
+                    border: '1px solid #cfc9bc',
+                    borderRadius: '6px',
+                    outline: 'none',
+                    background: '#fffdf8',
+                  }}
+                />
+                <datalist id="venue-suggestions">
+                  {venues.map((v) => (
+                    <option key={v.id} value={v.name} />
+                  ))}
+                </datalist>
+              </div>
+            </div>
+
+            <div style={{ marginBottom: '0.75rem' }}>
+              <label style={{ display: 'block', fontSize: '0.75rem', fontWeight: 600, color: '#475569', marginBottom: '0.25rem' }}>
+                Địa chỉ chi tiết
+              </label>
+              <input
+                type="text"
+                placeholder="VD: 1 Tràng Tiền, Hoàn Kiếm, Hà Nội"
+                value={venueAddress}
+                onChange={(e) => setVenueAddress(e.target.value)}
+                style={{
+                  width: '100%',
+                  padding: '0.5rem 0.75rem',
+                  fontSize: '0.8125rem',
+                  border: '1px solid #cfc9bc',
+                  borderRadius: '6px',
+                  outline: 'none',
+                  background: '#fffdf8',
+                }}
+              />
+            </div>
+
+            {/* Date & Showtime */}
+            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(130px, 1fr))', gap: '0.75rem' }}>
+              <div>
+                <label style={{ display: 'block', fontSize: '0.75rem', fontWeight: 600, color: '#475569', marginBottom: '0.25rem' }}>
+                  Ngày biểu diễn <span style={{ color: '#dc2626' }}>*</span>
+                </label>
+                <input
+                  type="date"
+                  required
+                  value={date}
+                  onChange={(e) => setDate(e.target.value)}
+                  style={{
+                    width: '100%',
+                    padding: '0.5rem 0.75rem',
+                    fontSize: '0.8125rem',
+                    border: '1px solid #cfc9bc',
+                    borderRadius: '6px',
+                    outline: 'none',
+                    background: '#fffdf8',
+                  }}
+                />
+              </div>
+
+              <div>
+                <label style={{ display: 'block', fontSize: '0.75rem', fontWeight: 600, color: '#475569', marginBottom: '0.25rem' }}>
+                  Giờ bắt đầu <span style={{ color: '#dc2626' }}>*</span>
+                </label>
+                <input
+                  type="time"
+                  required
+                  value={timeStart}
+                  onChange={(e) => setTimeStart(e.target.value)}
+                  style={{
+                    width: '100%',
+                    padding: '0.5rem 0.75rem',
+                    fontSize: '0.8125rem',
+                    border: '1px solid #cfc9bc',
+                    borderRadius: '6px',
+                    outline: 'none',
+                    background: '#fffdf8',
+                  }}
+                />
+              </div>
+
+              <div>
+                <label style={{ display: 'block', fontSize: '0.75rem', fontWeight: 600, color: '#475569', marginBottom: '0.25rem' }}>
+                  Giờ kết thúc <span style={{ color: '#dc2626' }}>*</span>
+                </label>
+                <input
+                  type="time"
+                  required
+                  value={timeEnd}
+                  onChange={(e) => setTimeEnd(e.target.value)}
+                  style={{
+                    width: '100%',
+                    padding: '0.5rem 0.75rem',
+                    fontSize: '0.8125rem',
+                    border: '1px solid #cfc9bc',
+                    borderRadius: '6px',
+                    outline: 'none',
+                    background: '#fffdf8',
+                  }}
+                />
+              </div>
+            </div>
+          </div>
+
+          {/* Section 3: Cấu hình giá vé 3 hạng */}
+          <div style={{ padding: '1rem', background: '#fff', border: '1px solid #e0dacf', borderRadius: '8px' }}>
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '0.5rem' }}>
+              <h3 style={{ fontSize: '0.875rem', fontWeight: 700, margin: 0, color: '#1e293b', display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
+                <Crown size={16} style={{ color: '#f59e0b' }} /> 3. Cấu hình giá vé 3 hạng (Tiers)
+              </h3>
+              <small style={{ color: '#64748b', fontSize: '0.7rem' }}>Tự động gán cho sơ đồ ghế</small>
+            </div>
+            <p style={{ margin: '0 0 0.75rem', fontSize: '0.75rem', color: '#64748b' }}>
+              Hệ thống sẽ tạo sơ đồ ghế tương ứng: Hàng A nhận giá Super VIP, Hàng B nhận giá VIP, Hàng C & D nhận giá Thường.
+            </p>
+
+            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(180px, 1fr))', gap: '0.75rem' }}>
+              {/* Tier 1: SUPER VIP */}
+              <div
+                style={{
+                  padding: '0.85rem',
+                  border: '2px solid #f59e0b',
+                  borderRadius: '8px',
+                  background: '#fffbeb',
+                  display: 'flex',
+                  flexDirection: 'column',
+                  gap: '0.35rem',
+                }}
+              >
+                <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+                  <span style={{ fontWeight: 800, fontSize: '0.8125rem', color: '#b45309', display: 'flex', alignItems: 'center', gap: '0.25rem' }}>
+                    <Crown size={14} /> SUPER VIP
+                  </span>
+                  <span style={{ fontSize: '0.625rem', padding: '0.125rem 0.35rem', background: '#fde68a', color: '#78350f', borderRadius: '4px', fontWeight: 700 }}>
+                    Hàng A
+                  </span>
+                </div>
+                <small style={{ color: '#92400e', fontSize: '0.6875rem' }}>Gần sân khấu, góc nhìn đẹp nhất</small>
+                <div style={{ marginTop: '0.25rem' }}>
+                  <label style={{ display: 'block', fontSize: '0.6875rem', fontWeight: 600, color: '#78350f' }}>Giá vé (VNĐ)</label>
+                  <input
+                    type="number"
+                    min={10000}
+                    step={10000}
+                    value={superVipPrice}
+                    onChange={(e) => setSuperVipPrice(Number(e.target.value))}
+                    style={{
+                      width: '100%',
+                      padding: '0.4rem 0.5rem',
+                      fontSize: '0.875rem',
+                      fontWeight: 700,
+                      border: '1px solid #f59e0b',
+                      borderRadius: '4px',
+                      background: '#fff',
+                      color: '#b45309',
+                    }}
+                  />
+                  <small style={{ display: 'block', marginTop: '0.2rem', color: '#b45309', fontWeight: 600, fontSize: '0.6875rem' }}>
+                    {formatVnd(superVipPrice)}
+                  </small>
+                </div>
+              </div>
+
+              {/* Tier 2: VIP */}
+              <div
+                style={{
+                  padding: '0.85rem',
+                  border: '2px solid #8b5cf6',
+                  borderRadius: '8px',
+                  background: '#f5f3ff',
+                  display: 'flex',
+                  flexDirection: 'column',
+                  gap: '0.35rem',
+                }}
+              >
+                <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+                  <span style={{ fontWeight: 800, fontSize: '0.8125rem', color: '#6d28d9', display: 'flex', alignItems: 'center', gap: '0.25rem' }}>
+                    <Star size={14} /> VIP
+                  </span>
+                  <span style={{ fontSize: '0.625rem', padding: '0.125rem 0.35rem', background: '#ede9fe', color: '#5b21b6', borderRadius: '4px', fontWeight: 700 }}>
+                    Hàng B
+                  </span>
+                </div>
+                <small style={{ color: '#5b21b6', fontSize: '0.6875rem' }}>Tầm nhìn đẹp, trải nghiệm cao cấp</small>
+                <div style={{ marginTop: '0.25rem' }}>
+                  <label style={{ display: 'block', fontSize: '0.6875rem', fontWeight: 600, color: '#5b21b6' }}>Giá vé (VNĐ)</label>
+                  <input
+                    type="number"
+                    min={10000}
+                    step={10000}
+                    value={vipPrice}
+                    onChange={(e) => setVipPrice(Number(e.target.value))}
+                    style={{
+                      width: '100%',
+                      padding: '0.4rem 0.5rem',
+                      fontSize: '0.875rem',
+                      fontWeight: 700,
+                      border: '1px solid #8b5cf6',
+                      borderRadius: '4px',
+                      background: '#fff',
+                      color: '#6d28d9',
+                    }}
+                  />
+                  <small style={{ display: 'block', marginTop: '0.2rem', color: '#6d28d9', fontWeight: 600, fontSize: '0.6875rem' }}>
+                    {formatVnd(vipPrice)}
+                  </small>
+                </div>
+              </div>
+
+              {/* Tier 3: NORMAL */}
+              <div
+                style={{
+                  padding: '0.85rem',
+                  border: '2px solid #10b981',
+                  borderRadius: '8px',
+                  background: '#ecfdf5',
+                  display: 'flex',
+                  flexDirection: 'column',
+                  gap: '0.35rem',
+                }}
+              >
+                <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+                  <span style={{ fontWeight: 800, fontSize: '0.8125rem', color: '#047857', display: 'flex', alignItems: 'center', gap: '0.25rem' }}>
+                    <Ticket size={14} /> THƯỜNG
+                  </span>
+                  <span style={{ fontSize: '0.625rem', padding: '0.125rem 0.35rem', background: '#d1fae5', color: '#065f46', borderRadius: '4px', fontWeight: 700 }}>
+                    Hàng C & D
+                  </span>
+                </div>
+                <small style={{ color: '#047857', fontSize: '0.6875rem' }}>Khán đài tiêu chuẩn, giá tiết kiệm</small>
+                <div style={{ marginTop: '0.25rem' }}>
+                  <label style={{ display: 'block', fontSize: '0.6875rem', fontWeight: 600, color: '#065f46' }}>Giá vé (VNĐ)</label>
+                  <input
+                    type="number"
+                    min={10000}
+                    step={10000}
+                    value={normalPrice}
+                    onChange={(e) => setNormalPrice(Number(e.target.value))}
+                    style={{
+                      width: '100%',
+                      padding: '0.4rem 0.5rem',
+                      fontSize: '0.875rem',
+                      fontWeight: 700,
+                      border: '1px solid #10b981',
+                      borderRadius: '4px',
+                      background: '#fff',
+                      color: '#047857',
+                    }}
+                  />
+                  <small style={{ display: 'block', marginTop: '0.2rem', color: '#047857', fontWeight: 600, fontSize: '0.6875rem' }}>
+                    {formatVnd(normalPrice)}
+                  </small>
+                </div>
+              </div>
+            </div>
+          </div>
+
+          {/* Section 4: Tùy chọn xuất bản */}
+          <div style={{ padding: '0.75rem 1rem', background: '#fff', border: '1px solid #e0dacf', borderRadius: '8px' }}>
+            <label style={{ display: 'flex', alignItems: 'center', gap: '0.75rem', cursor: 'pointer', fontSize: '0.8125rem' }}>
+              <input
+                type="checkbox"
+                checked={published}
+                onChange={(e) => setPublished(e.target.checked)}
+                style={{ width: '18px', height: '18px', accentColor: '#db5a39', cursor: 'pointer' }}
+              />
+              <span>
+                <strong style={{ display: 'block', color: '#1e293b' }}>Xuất bản sự kiện ngay lập tức</strong>
+                <small style={{ color: '#64748b' }}>
+                  Người dùng có thể tìm thấy sự kiện trên trang chủ và đặt vé ngay sau khi tạo
+                </small>
+              </span>
+            </label>
+          </div>
+
+          {/* Form Actions Footer */}
+          <div style={{ display: 'flex', justifyContent: 'flex-end', gap: '0.75rem', marginTop: '0.5rem' }}>
+            <button
+              type="button"
+              disabled={busy}
+              onClick={onClose}
+              style={{
+                padding: '0.625rem 1.25rem',
+                fontSize: '0.875rem',
+                fontWeight: 600,
+                border: '1px solid #cfc9bc',
+                borderRadius: '6px',
+                background: '#fff',
+                color: '#64748b',
+                cursor: 'pointer',
+              }}
+            >
+              Hủy bỏ
+            </button>
+            <button
+              type="submit"
+              disabled={busy}
+              className="primary"
+              style={{
+                padding: '0.625rem 1.5rem',
+                fontSize: '0.875rem',
+                fontWeight: 700,
+                backgroundColor: '#db5a39',
+                color: '#fff',
+                borderRadius: '6px',
+                border: 'none',
+                cursor: 'pointer',
+                display: 'inline-flex',
+                alignItems: 'center',
+                gap: '0.5rem',
+                boxShadow: '0 4px 12px rgba(219, 90, 57, 0.25)',
+              }}
+            >
+              {busy ? (
+                <span>Đang xử lý...</span>
+              ) : (
+                <>
+                  <Check size={16} />
+                  <span>Tạo sự kiện ngay</span>
+                </>
+              )}
+            </button>
+          </div>
+        </form>
+      </div>
+    </div>
+  );
 }
