@@ -16,6 +16,7 @@ import com.fasterxml.jackson.core.type.TypeReference;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Service;
 
@@ -33,6 +34,7 @@ public class JwtService {
     private final ObjectMapper objectMapper;
     private final Clock clock;
 
+    @Autowired
     public JwtService(
             @Value("${ebooking.security.jwt-secret:local-development-jwt-secret-key-must-be-at-least-256-bits-long!!}") String secretKey,
             @Value("${ebooking.security.jwt-expiration-seconds:86400}") long expirationSeconds,
