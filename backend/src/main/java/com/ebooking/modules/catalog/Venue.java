@@ -41,5 +41,17 @@ public class Venue extends BaseEntity {
     public String getAddress() {
         return address;
     }
+
+    public void setCity(City city) {
+        this.city = city;
+    }
+
+    public void setName(String name) {
+        this.name = name;
+    }
+
+    public void setAddress(String address) {
+        this.address = address;
+    }
 }
 

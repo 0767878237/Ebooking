@@ -43,6 +43,7 @@ import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PatchMapping;
 import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.PostMapping;
+import org.springframework.web.bind.annotation.PutMapping;
 import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RequestParam;
@@ -210,6 +211,18 @@ public class AdminCatalogController {
         return new EventResponse(event.getId(), event.getTitle(), event.isPublished());
     }
 
+    @PutMapping("/cities/{cityId}")
+    @Transactional
+    public CityResponse updateCity(@PathVariable UUID cityId, @Valid @RequestBody CityRequest request) {
+        City city = cityRepository.findById(cityId)
+                .orElseThrow(() -> new NotFoundException("City was not found."));
+        if (city.getDeletedAt() != null) {
+            throw new NotFoundException("City was not found.");
+        }
+        city.setName(request.name().trim());
+        return new CityResponse(city.getId(), city.getName());
+    }
+
     @DeleteMapping("/cities/{cityId}")
     @ResponseStatus(HttpStatus.NO_CONTENT)
     @Transactional
@@ -219,12 +232,53 @@ public class AdminCatalogController {
                 .softDelete();
     }
 
+    @PutMapping("/venues/{venueId}")
+    @Transactional
+    public VenueResponse updateVenue(@PathVariable UUID venueId, @Valid @RequestBody VenueRequest request) {
+        Venue venue = venueRepository.findById(venueId)
+                .orElseThrow(() -> new NotFoundException("Venue was not found."));
+        if (venue.getDeletedAt() != null) {
+            throw new NotFoundException("Venue was not found.");
+        }
+        City city = cityRepository.findById(request.cityId())
+                .orElseThrow(() -> new NotFoundException("City was not found."));
+        if (city.getDeletedAt() != null) {
+            throw new NotFoundException("City was not found.");
+        }
+        venue.setCity(city);
+        venue.setName(request.name().trim());
+        venue.setAddress(request.address().trim());
+        return new VenueResponse(venue.getId(), city.getId(), venue.getName(), venue.getAddress());
+    }
+
     @DeleteMapping("/venues/{venueId}")
     @ResponseStatus(HttpStatus.NO_CONTENT)
     @Transactional
     public void deleteVenue(@PathVariable UUID venueId) {
         venueRepository.findById(venueId)
                 .orElseThrow(() -> new NotFoundException("Venue was not found."))
+                .softDelete();
+    }
+
+    @PutMapping("/genres/{genreId}")
+    @Transactional
+    public GenreResponse updateGenre(@PathVariable UUID genreId, @Valid @RequestBody GenreRequest request) {
+        Genre genre = genreRepository.findById(genreId)
+                .orElseThrow(() -> new NotFoundException("Genre was not found."));
+        if (genre.getDeletedAt() != null) {
+            throw new NotFoundException("Genre was not found.");
+        }
+        genre.setName(request.name().trim());
+        genre.setSlug(request.slug().trim().toLowerCase());
+        return new GenreResponse(genre.getId(), genre.getName(), genre.getSlug());
+    }
+
+    @DeleteMapping("/genres/{genreId}")
+    @ResponseStatus(HttpStatus.NO_CONTENT)
+    @Transactional
+    public void deleteGenre(@PathVariable UUID genreId) {
+        genreRepository.findById(genreId)
+                .orElseThrow(() -> new NotFoundException("Genre was not found."))
                 .softDelete();
     }
 

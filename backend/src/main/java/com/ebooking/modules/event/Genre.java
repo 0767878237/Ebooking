@@ -29,5 +29,13 @@ public class Genre extends BaseEntity {
     public String getSlug() {
         return slug;
     }
+
+    public void setName(String name) {
+        this.name = name;
+    }
+
+    public void setSlug(String slug) {
+        this.slug = slug;
+    }
 }
 
