@@ -48,14 +48,41 @@ export const adminApi = {
     });
   },
 
+  async updateCity(cityId: string, name: string): Promise<City> {
+    return apiClient<City>(`/api/admin/cities/${cityId}`, {
+      method: 'PUT',
+      body: JSON.stringify({ name }),
+    });
+  },
+
   async deleteCity(cityId: string): Promise<void> {
     return apiClient<void>(`/api/admin/cities/${cityId}`, {
       method: 'DELETE',
     });
   },
 
+  async updateVenue(venueId: string, payload: { cityId: string; name: string; address: string }): Promise<Venue> {
+    return apiClient<Venue>(`/api/admin/venues/${venueId}`, {
+      method: 'PUT',
+      body: JSON.stringify(payload),
+    });
+  },
+
   async deleteVenue(venueId: string): Promise<void> {
     return apiClient<void>(`/api/admin/venues/${venueId}`, {
+      method: 'DELETE',
+    });
+  },
+
+  async updateGenre(genreId: string, payload: { name: string; slug: string }): Promise<Genre> {
+    return apiClient<Genre>(`/api/admin/genres/${genreId}`, {
+      method: 'PUT',
+      body: JSON.stringify(payload),
+    });
+  },
+
+  async deleteGenre(genreId: string): Promise<void> {
+    return apiClient<void>(`/api/admin/genres/${genreId}`, {
       method: 'DELETE',
     });
   },
