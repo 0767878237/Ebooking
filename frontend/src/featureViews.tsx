@@ -81,16 +81,36 @@ export function BookingHistoryView({
   records,
   onBrowse,
   onCancel,
+  isGuest,
+  onLogin,
 }: {
   records: BookingRecord[];
   onBrowse: () => void;
   onCancel: (record: BookingRecord) => void;
+  isGuest?: boolean;
+  onLogin?: () => void;
 }) {
   return (
     <section className="content standalone">
       <p className="eyebrow">Account</p>
-      <h1>Ve cua toi</h1>
-      {records.length ? (
+      <h1>Vé của tôi</h1>
+      {isGuest ? (
+        <div className="empty-history">
+          <Ticket size={34} />
+          <h3>Bạn chưa đăng nhập</h3>
+          <p>Vui lòng đăng nhập tài khoản để xem danh sách vé và lịch sử đặt chỗ của bạn.</p>
+          <div className="flex items-center justify-center gap-3 mt-4">
+            {onLogin && (
+              <button className="primary" onClick={onLogin}>
+                Đăng nhập ngay
+              </button>
+            )}
+            <button className="secondary" onClick={onBrowse}>
+              Khám phá sự kiện
+            </button>
+          </div>
+        </div>
+      ) : records.length ? (
         <div className="booking-history">
           {records.map((record) => (
             <article className="booking-row" key={record.bookingId}>
@@ -98,13 +118,13 @@ export function BookingHistoryView({
               <span>
                 <b>{record.eventTitle}</b>
                 <small>
-                  {formatDate(record.show.startsAt)} - {record.seats.length} ghe - {record.status}
+                  {formatDate(record.show.startsAt)} - {record.seats.length} ghế - {record.status}
                 </small>
               </span>
               <strong>{formatMoney(record.totalAmount)}</strong>
               {(record.status === 'PENDING_PAYMENT' || record.status === 'PAID') && (
                 <button className="secondary" onClick={() => onCancel(record)}>
-                  Huy
+                  Hủy
                 </button>
               )}
               <ChevronRight size={18} />
@@ -114,10 +134,10 @@ export function BookingHistoryView({
       ) : (
         <div className="empty-history">
           <Ticket size={34} />
-          <h3>Chua co booking nao</h3>
-          <p>Nhung ve ban dat se xuat hien o day.</p>
+          <h3>Chưa có booking nào</h3>
+          <p>Những vé bạn đặt sẽ xuất hiện ở đây.</p>
           <button className="primary" onClick={onBrowse}>
-            Kham pha event
+            Khám phá sự kiện
           </button>
         </div>
       )}

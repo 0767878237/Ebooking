@@ -37,6 +37,12 @@ export function setStoredUser(user: any | null) {
   }
 }
 
+export function clearStoredAuth() {
+  if (typeof window === 'undefined') return;
+  localStorage.removeItem(TOKEN_STORAGE_KEY);
+  localStorage.removeItem(USER_STORAGE_KEY);
+}
+
 export class ApiError extends Error {
   status: number;
   data: any;

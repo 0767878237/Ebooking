@@ -1,23 +1,31 @@
-import { useEffect, useMemo, useState, type ReactNode } from 'react';
+import { useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
 import {
   Armchair,
   ArrowLeft,
   Check,
+  ChevronDown,
   ChevronRight,
   CircleHelp,
   Clock3,
   CreditCard,
+  FlaskConical,
   LayoutDashboard,
+  LogIn,
+  LogOut,
   MapPin,
   QrCode,
   Search,
   ShieldCheck,
   Ticket,
+  UserPlus,
   Users,
   WalletCards,
 } from 'lucide-react';
 import { BookingHistoryView, CheckinWorkspace, EnhancedTicketView } from './featureViews';
 import { AdminWorkspace } from './adminView';
+import { AuthDialog } from './components/common/AuthDialog';
+import { clearStoredAuth, getStoredToken, getStoredUser, setStoredToken, setStoredUser } from './api/client';
+import type { User } from './api/types';
 
 // Domain models mirror the API payloads used by the booking flow.
 // Keep these close to the API contract until the frontend is split into feature modules.
@@ -140,7 +148,7 @@ type IdentityAuthResponse = {
   role: IdentityKey;
 };
 
-function canAccessView(role: IdentityKey, view: View) {
+function canAccessView(role: IdentityKey | string | undefined, view: View) {
   if (view === 'checkin') {
     return role === 'CHECK_IN_STAFF' || role === 'ADMIN';
   }
@@ -164,14 +172,14 @@ const IDENTITY_SESSIONS: Record<IdentityKey, IdentitySession> = {
   },
   ORGANIZER: {
     key: 'ORGANIZER',
-    userId: '00000000-0000-0000-0000-000000000002',
+    userId: 'f639fec1-eb8c-4782-8507-9cb8c5df392c',
     role: 'ORGANIZER',
     displayName: 'E Booking Organizer',
     email: 'organizer@ebooking.local',
   },
   CHECK_IN_STAFF: {
     key: 'CHECK_IN_STAFF',
-    userId: '00000000-0000-0000-0000-000000000003',
+    userId: '11111111-1111-1111-1111-111111111111',
     role: 'CHECK_IN_STAFF',
     displayName: 'E Booking Staff',
     email: 'staff@ebooking.local',
@@ -394,37 +402,80 @@ function App() {
   const [lastCheckin, setLastCheckin] = useState<CheckinRecord | null>(null);
   const [checkinLoading, setCheckinLoading] = useState(false);
   const [loading, setLoading] = useState(false);
-  const [identityKey, setIdentityKey] = useState<IdentityKey>('USER');
+  const [currentUser, setCurrentUser] = useState<User | null>(() => getStoredUser());
   const [identitySessions, setIdentitySessions] = useState(IDENTITY_SESSIONS);
-  const [jwtToken, setJwtToken] = useState('');
+  const [jwtToken, setJwtToken] = useState<string>(() => getStoredToken() ?? '');
   const [basicAuthHeader, setBasicAuthHeader] = useState('');
-  const [authEmail, setAuthEmail] = useState('');
-  const [authPassword, setAuthPassword] = useState('');
+  const [isAuthOpen, setIsAuthOpen] = useState(false);
+  const [authMode, setAuthMode] = useState<'login' | 'register'>('login');
+  const [authPrompt, setAuthPrompt] = useState('');
   const [authLoading, setAuthLoading] = useState(false);
   const [bookingHistory, setBookingHistory] = useState<BookingRecord[]>([]);
-  const identity = identitySessions[identityKey];
-  const request = useMemo(() => createRequest(identity.userId, basicAuthHeader, jwtToken), [basicAuthHeader, identity.userId, jwtToken]);
 
+  // Current effective role
+  const currentRole = currentUser?.role as IdentityKey | undefined;
+
+  // Identity object for backward-compatible subcomponents (CheckinWorkspace, AdminWorkspace)
+  const identity: IdentitySession = useMemo(() => {
+    if (currentUser) {
+      return {
+        key: (currentUser.role as IdentityKey) || 'USER',
+        userId: currentUser.id,
+        role: currentUser.role,
+        displayName: currentUser.displayName,
+        email: currentUser.email,
+      };
+    }
+    return {
+      key: 'USER',
+      userId: '',
+      role: 'USER',
+      displayName: 'Khách',
+      email: '',
+    };
+  }, [currentUser]);
+
+  const request = useMemo(() => {
+    const userId = currentUser?.id ?? '';
+    return createRequest(userId, basicAuthHeader, jwtToken);
+  }, [basicAuthHeader, currentUser?.id, jwtToken]);
+
+  // Restore and validate session from backend on page load
   useEffect(() => {
     let cancelled = false;
-    async function fetchDemoToken() {
-      try {
-        const res = await fetch(`${API}/api/identity/demo-token/${identity.userId}`);
-        if (res.ok) {
-          const data = await res.json();
-          if (!cancelled && data.token) {
-            setJwtToken(data.token);
+    const token = getStoredToken();
+    if (token) {
+      fetch(`${API}/api/identity/me`, {
+        headers: { Authorization: `Bearer ${token}` },
+      })
+        .then(async (res) => {
+          if (res.ok) {
+            const data = (await res.json()) as User & { token?: string };
+            if (!cancelled) {
+              setCurrentUser(data);
+              setStoredUser(data);
+              if (data.token) {
+                setJwtToken(data.token);
+                setStoredToken(data.token);
+              }
+            }
+          } else if (res.status === 401) {
+            // Token expired or invalid
+            if (!cancelled) {
+              clearStoredAuth();
+              setCurrentUser(null);
+              setJwtToken('');
+            }
           }
-        }
-      } catch {
-        // Fallback to X-User-Id
-      }
+        })
+        .catch(() => {
+          // Keep stored user if offline
+        });
     }
-    void fetchDemoToken();
     return () => {
       cancelled = true;
     };
-  }, [identity.userId]);
+  }, []);
 
   useEffect(() => {
     let cancelled = false;
@@ -449,6 +500,10 @@ function App() {
   useEffect(() => {
     let cancelled = false;
     async function loadBackendBookings() {
+      if (!currentUser) {
+        setBookingHistory([]);
+        return;
+      }
       try {
         type ApiBooking = {
           id: string;
@@ -489,20 +544,21 @@ function App() {
       } catch {
         // fallback to local storage
       }
-      if (!cancelled) {
-        setBookingHistory(readBookingHistory(identityKey));
+      if (!cancelled && currentUser) {
+        const key: IdentityKey = (currentUser.role as IdentityKey) || 'USER';
+        setBookingHistory(readBookingHistory(key));
       }
     }
     void loadBackendBookings();
     return () => {
       cancelled = true;
     };
-  }, [identityKey, request]);
+  }, [currentUser?.id, currentUser?.role, request]);
 
   useEffect(() => {
     let cancelled = false;
     async function loadRecentScans() {
-      if (view === 'checkin' && (identity.role === 'CHECK_IN_STAFF' || identity.role === 'ADMIN')) {
+      if (view === 'checkin' && (currentRole === 'CHECK_IN_STAFF' || currentRole === 'ADMIN')) {
         try {
           const scans = await request<Array<{
             id: string;
@@ -528,8 +584,8 @@ function App() {
           // fallback
         }
       }
-      if (!cancelled) {
-        const history = readCheckinHistory(identityKey);
+      if (!cancelled && currentRole) {
+        const history = readCheckinHistory(currentRole);
         setCheckinHistory(history);
         setLastCheckin(history[0] ?? null);
       }
@@ -538,29 +594,32 @@ function App() {
     return () => {
       cancelled = true;
     };
-  }, [identityKey, identity.role, request, view]);
+  }, [currentRole, request, view]);
 
   useEffect(() => {
+    if (!currentUser) return;
     try {
+      const key: IdentityKey = (currentUser.role as IdentityKey) || 'USER';
       window.localStorage.setItem(
-        `${BOOKING_HISTORY_PREFIX}${identityKey}`,
+        `${BOOKING_HISTORY_PREFIX}${key}`,
         JSON.stringify(bookingHistory),
       );
     } catch {
       // Local storage is best-effort only.
     }
-  }, [bookingHistory, identityKey]);
+  }, [bookingHistory, currentUser]);
 
   useEffect(() => {
+    if (!currentRole) return;
     try {
       window.localStorage.setItem(
-        `${CHECKIN_HISTORY_PREFIX}${identityKey}`,
+        `${CHECKIN_HISTORY_PREFIX}${currentRole}`,
         JSON.stringify(checkinHistory),
       );
     } catch {
-      // Check-in history is best-effort only.
+      // Local storage is best-effort only.
     }
-  }, [checkinHistory, identityKey]);
+  }, [checkinHistory, currentRole]);
 
   // Load filter options once. These are public catalog APIs and do not require a
   // customer booking session, but using the same request client keeps identity
@@ -737,6 +796,12 @@ function App() {
       return;
     }
 
+    // Must be logged in to hold seats / book tickets
+    if (!currentUser) {
+      openAuth('login', 'Vui lòng đăng nhập tài khoản để tiến hành giữ chỗ và đặt vé.');
+      return;
+    }
+
     // A hold prevents another buyer from taking these seats before payment finishes.
     setLoading(true);
 
@@ -868,7 +933,10 @@ function App() {
   function navigate(nextView: View) {
     // Keep client navigation aligned with backend roles so an identity switch
     // cannot leave the user on a screen they are no longer allowed to use.
-    if (!canAccessView(identity.role, nextView)) {
+    if (!canAccessView(currentRole, nextView)) {
+      if (nextView === 'admin' || nextView === 'checkin') {
+        setNotice('Bạn cần đăng nhập bằng tài khoản có thẩm quyền để truy cập trang này.');
+      }
       setView('browse');
       resetFlow();
       return;
@@ -879,35 +947,74 @@ function App() {
     }
   }
 
-  function switchIdentity(nextIdentity: IdentityKey) {
-    setIdentityKey(nextIdentity);
-    setBasicAuthHeader('');
-    setAuthPassword('');
-    // A new identity should not inherit the previous booking/check-in state.
-    resetFlow();
-    if (!canAccessView(identitySessions[nextIdentity].role, view)) {
-      setView('browse');
+  async function switchDemoUser(roleKey: IdentityKey) {
+    const targetSession = identitySessions[roleKey];
+    if (!targetSession) return;
+    try {
+      const res = await fetch(`${API}/api/identity/demo-token/${targetSession.userId}`, {
+        method: 'POST',
+      });
+      if (res.ok) {
+        const data = (await res.json()) as User & { token?: string };
+        setCurrentUser(data);
+        setStoredUser(data);
+        if (data.token) {
+          setJwtToken(data.token);
+          setStoredToken(data.token);
+        }
+        setBasicAuthHeader('');
+        setNotice(`Đã chuyển sang vai trò thử nghiệm: ${data.displayName} (${data.role})`);
+        return;
+      }
+    } catch {
+      // Fallback
     }
+    const fallbackUser: User = {
+      id: targetSession.userId,
+      email: targetSession.email,
+      displayName: targetSession.displayName,
+      role: targetSession.role,
+    };
+    setCurrentUser(fallbackUser);
+    setStoredUser(fallbackUser);
+    setNotice(`Đã chuyển sang vai trò thử nghiệm: ${fallbackUser.displayName} (${fallbackUser.role})`);
   }
 
-  async function submitIdentityAuth(mode: 'login' | 'register') {
-    const email = authEmail.trim().toLowerCase();
-    if (!email || !authPassword) {
-      setNotice('Nhap email va mat khau truoc khi tiep tuc.');
-      return;
-    }
+  function openAuth(mode: 'login' | 'register', prompt?: string) {
+    setAuthMode(mode);
+    setAuthPrompt(prompt ?? '');
+    setIsAuthOpen(true);
+  }
 
+  function handleLogout() {
+    clearStoredAuth();
+    setCurrentUser(null);
+    setJwtToken('');
+    setBasicAuthHeader('');
+    if (view === 'admin' || view === 'checkin') {
+      setView('browse');
+    }
+    resetFlow();
+    setNotice('Bạn đã đăng xuất tài khoản thành công.');
+  }
+
+  async function submitIdentityAuth(data: {
+    mode: 'login' | 'register';
+    email: string;
+    password: string;
+    displayName?: string;
+  }) {
+    const { mode, email, password, displayName } = data;
     setAuthLoading(true);
     try {
-      const payload = mode === 'register'
-        ? {
-            email,
-            // MVP keeps registration compact: display name is derived from the
-            // email prefix and can be expanded to an editable profile later.
-            displayName: email.split('@')[0] || 'E Booking User',
-            password: authPassword,
-          }
-        : { email, password: authPassword };
+      const payload =
+        mode === 'register'
+          ? {
+              email,
+              displayName: displayName?.trim() || email.split('@')[0] || 'Khách hàng',
+              password,
+            }
+          : { email, password };
       const response = await fetch(`${API}/api/identity/${mode}`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -915,29 +1022,27 @@ function App() {
       });
       if (!response.ok) {
         const error = await response.json().catch(() => null);
-        throw new Error(error?.message ?? `Identity API ${response.status}`);
+        throw new Error(error?.message ?? `Lỗi xác thực: ${response.status}`);
       }
 
-      const session = (await response.json()) as IdentityAuthResponse & { token?: string };
+      const session = (await response.json()) as User & { token?: string };
+      setCurrentUser(session);
+      setStoredUser(session);
       if (session.token) {
         setJwtToken(session.token);
+        setStoredToken(session.token);
       }
-      setIdentitySessions((current) => ({
-        ...current,
-        USER: {
-          key: 'USER',
-          userId: session.id,
-          role: session.role,
-          displayName: session.displayName,
-          email: session.email,
-        },
-      }));
-      setIdentityKey('USER');
-      setBasicAuthHeader(toBasicAuthHeader(email, authPassword));
-      resetFlow();
-      setNotice(mode === 'register' ? 'Dang ky thanh cong.' : 'Dang nhap thanh cong.');
+      setBasicAuthHeader(toBasicAuthHeader(email, password));
+      setIsAuthOpen(false);
+      setNotice(
+        mode === 'register'
+          ? `Tạo tài khoản thành công! Chào mừng ${session.displayName} gia nhập E-Booking.`
+          : `Đăng nhập thành công! Chào mừng ${session.displayName} quay trở lại.`
+      );
     } catch (error) {
-      setNotice(error instanceof Error ? error.message : 'Identity request failed.');
+      const message = error instanceof Error ? error.message : 'Yêu cầu xác thực thất bại.';
+      setNotice(message);
+      throw error;
     } finally {
       setAuthLoading(false);
     }
@@ -989,17 +1094,27 @@ function App() {
       {/* Global shell and top-level routes. Each view owns its local layout below. */}
       <Header
         view={view}
-        identity={identity}
+        currentUser={currentUser}
         identitySessions={identitySessions}
-        authEmail={authEmail}
-        authPassword={authPassword}
-        authLoading={authLoading}
-        onIdentityChange={switchIdentity}
-        onAuthEmailChange={setAuthEmail}
-        onAuthPasswordChange={setAuthPassword}
-        onIdentitySubmit={submitIdentityAuth}
+        onSwitchDemo={switchDemoUser}
+        onOpenAuth={openAuth}
+        onLogout={handleLogout}
         onNavigate={navigate}
         onHome={resetFlow}
+      />
+      <AuthDialog
+        isOpen={isAuthOpen}
+        initialMode={authMode}
+        promptMessage={authPrompt}
+        onClose={() => setIsAuthOpen(false)}
+        onSubmit={submitIdentityAuth}
+        loading={authLoading}
+        demoUsers={Object.values(identitySessions).map((s) => ({
+          id: s.userId,
+          email: s.email,
+          displayName: s.displayName,
+          role: s.role,
+        }))}
       />
       {notice && <Toast message={notice} onClose={() => setNotice('')} />}
 
@@ -1042,11 +1157,34 @@ function App() {
         />
       )}
       {view === 'bookings' && (
-        <BookingHistoryView
-          records={bookingHistory}
-          onBrowse={() => navigate('browse')}
-          onCancel={cancelBooking}
-        />
+        !currentUser ? (
+          <section className="content standalone">
+            <p className="eyebrow">Tài khoản</p>
+            <h1>Vé của tôi</h1>
+            <div className="empty-history" style={{ padding: '3.5rem 1rem', textAlign: 'center' }}>
+              <Ticket size={44} className="text-stone-400 mx-auto mb-3" />
+              <h3 style={{ fontSize: '1.2rem', fontWeight: 'bold', color: '#292524', marginBottom: '0.5rem' }}>
+                Bạn chưa đăng nhập
+              </h3>
+              <p style={{ fontSize: '0.875rem', color: '#78716c', maxWidth: '380px', margin: '0 auto 1.5rem auto' }}>
+                Vui lòng đăng nhập để xem danh sách vé đã đặt và lịch sử giao dịch của bạn.
+              </p>
+              <button
+                type="button"
+                className="primary"
+                onClick={() => openAuth('login', 'Đăng nhập để xem danh sách vé của bạn')}
+              >
+                Đăng nhập ngay
+              </button>
+            </div>
+          </section>
+        ) : (
+          <BookingHistoryView
+            records={bookingHistory}
+            onBrowse={() => navigate('browse')}
+            onCancel={cancelBooking}
+          />
+        )
       )}
       {view === 'checkin' && (
         <CheckinWorkspace
@@ -1093,77 +1231,264 @@ function App() {
   );
 }
 
+// Role badge configuration for account tags
+const ROLE_BADGE_CONFIG: Record<string, { label: string; badgeClass: string }> = {
+  USER: { label: 'Khách hàng', badgeClass: 'bg-sky-100 text-sky-800 border-sky-300' },
+  ORGANIZER: { label: 'Ban tổ chức', badgeClass: 'bg-amber-100 text-amber-800 border-amber-300' },
+  CHECK_IN_STAFF: { label: 'Soát vé', badgeClass: 'bg-emerald-100 text-emerald-800 border-emerald-300' },
+  ADMIN: { label: 'Quản trị viên', badgeClass: 'bg-purple-100 text-purple-800 border-purple-300' },
+};
+
 // Global navigation and local identity-session switcher.
 function Header({
   view,
-  identity,
+  currentUser,
   identitySessions,
-  authEmail,
-  authPassword,
-  authLoading,
-  onIdentityChange,
-  onAuthEmailChange,
-  onAuthPasswordChange,
-  onIdentitySubmit,
+  onSwitchDemo,
+  onOpenAuth,
+  onLogout,
   onNavigate,
   onHome,
 }: {
   view: View;
-  identity: IdentitySession;
+  currentUser: User | null;
   identitySessions: Record<IdentityKey, IdentitySession>;
-  authEmail: string;
-  authPassword: string;
-  authLoading: boolean;
-  onIdentityChange: (role: IdentityKey) => void;
-  onAuthEmailChange: (value: string) => void;
-  onAuthPasswordChange: (value: string) => void;
-  onIdentitySubmit: (mode: 'login' | 'register') => void;
+  onSwitchDemo: (role: IdentityKey) => void;
+  onOpenAuth: (mode: 'login' | 'register') => void;
+  onLogout: () => void;
   onNavigate: (view: View) => void;
   onHome: () => void;
 }) {
+  const [dropdownOpen, setDropdownOpen] = useState(false);
+  const dropdownRef = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    if (!dropdownOpen) return;
+    const handleClickOutside = (e: MouseEvent) => {
+      if (dropdownRef.current && !dropdownRef.current.contains(e.target as Node)) {
+        setDropdownOpen(false);
+      }
+    };
+    document.addEventListener('mousedown', handleClickOutside);
+    return () => document.removeEventListener('mousedown', handleClickOutside);
+  }, [dropdownOpen]);
+
+  const roleBadge = currentUser?.role ? (ROLE_BADGE_CONFIG[currentUser.role] ?? {
+    label: currentUser.role,
+    badgeClass: 'bg-stone-100 text-stone-700 border-stone-300',
+  }) : null;
+
   return (
-    <header className="topbar">
-      <button className="brand" onClick={onHome}>
-        <span className="brand-mark">e</span>
-        <span>
-          ebooking
-          <small>EVENTS / TICKETS / MOMENTS</small>
-        </span>
-      </button>
-      <nav className="main-nav" aria-label="Main navigation">
-        <NavButton active={view === 'browse'} icon={<Search size={17} />} onClick={() => onNavigate('browse')}>Kham pha</NavButton>
-        <NavButton active={view === 'bookings'} icon={<Ticket size={17} />} onClick={() => onNavigate('bookings')}>Ve cua toi</NavButton>
-        {canAccessView(identity.role, 'checkin') && (
-          <NavButton active={view === 'checkin'} icon={<QrCode size={17} />} onClick={() => onNavigate('checkin')}>Check-in</NavButton>
-        )}
-        {canAccessView(identity.role, 'admin') && (
-          <NavButton active={view === 'admin'} icon={<LayoutDashboard size={17} />} onClick={() => onNavigate('admin')}>Quan ly</NavButton>
-        )}
-      </nav>
-      <div className="account">
-        <span className="live-dot" />
-        Identity
-        <select value={identity.key} onChange={(event) => onIdentityChange(event.target.value as IdentityKey)}>
-          {Object.values(identitySessions).map((session) => (
-            <option key={session.key} value={session.key}>
-              {session.displayName}
-            </option>
-          ))}
-        </select>
-        <input value={authEmail} onChange={(event) => onAuthEmailChange(event.target.value)} placeholder="email" />
-        <input type="password" value={authPassword} onChange={(event) => onAuthPasswordChange(event.target.value)} placeholder="password" />
-        <button disabled={authLoading} onClick={() => onIdentitySubmit('login')}>Login</button>
-        <button disabled={authLoading} onClick={() => onIdentitySubmit('register')}>Register</button>
-        <span className="avatar" title={`${identity.displayName} - ${identity.role}`}>
-          {identity.role[0]}
-        </span>
+    <header className="sticky top-0 z-40 bg-[#f5f1e9]/95 backdrop-blur-md border-b border-[#dcd6cb] py-3.5 px-4 md:px-8 mb-6">
+      <div className="max-w-7xl mx-auto flex items-center justify-between gap-4 flex-wrap">
+        {/* Brand logo & Main navigation */}
+        <div className="flex items-center gap-6 md:gap-10">
+          <button
+            type="button"
+            className="flex items-center gap-2.5 text-inherit border-0 bg-transparent cursor-pointer group text-left p-0"
+            onClick={onHome}
+          >
+            <span className="w-9 h-9 rounded-full bg-[#db5a39] text-white flex items-center justify-center font-serif italic text-xl font-bold shadow-sm group-hover:scale-105 transition-transform">
+              e
+            </span>
+            <span>
+              <span className="block font-serif text-2xl font-bold tracking-tight text-stone-900 leading-none">
+                ebooking
+              </span>
+              <small className="block text-[9px] font-sans font-bold tracking-wider text-stone-500 uppercase mt-0.5">
+                Events / Tickets / Moments
+              </small>
+            </span>
+          </button>
+
+          <nav className="flex items-center gap-1 sm:gap-2" aria-label="Main navigation">
+            <NavButton active={view === 'browse'} icon={<Search size={16} />} onClick={() => onNavigate('browse')}>
+              Khám phá
+            </NavButton>
+            <NavButton active={view === 'bookings'} icon={<Ticket size={16} />} onClick={() => onNavigate('bookings')}>
+              Vé của tôi
+            </NavButton>
+            {canAccessView(currentUser?.role, 'checkin') && (
+              <NavButton active={view === 'checkin'} icon={<QrCode size={16} />} onClick={() => onNavigate('checkin')}>
+                Check-in
+              </NavButton>
+            )}
+            {canAccessView(currentUser?.role, 'admin') && (
+              <NavButton active={view === 'admin'} icon={<LayoutDashboard size={16} />} onClick={() => onNavigate('admin')}>
+                Quản lý
+              </NavButton>
+            )}
+          </nav>
+        </div>
+
+        {/* Right side: Demo tester selector & User profile / Auth buttons */}
+        <div className="flex items-center gap-3 flex-wrap">
+          {/* Quick Demo Switcher (Tool for testing & evaluation) */}
+          <div className="flex items-center gap-1.5 px-2.5 py-1.5 bg-stone-200/75 border border-stone-300 rounded-lg text-xs text-stone-600">
+            <FlaskConical size={13} className="text-[#db5a39]" />
+            <span className="font-semibold text-stone-600">Chế độ Test:</span>
+            <select
+              value={currentUser ? currentUser.role : ''}
+              onChange={(e) => {
+                const val = e.target.value;
+                if (val) {
+                  onSwitchDemo(val as IdentityKey);
+                } else {
+                  onLogout();
+                }
+              }}
+              className="bg-transparent text-stone-900 font-semibold border-0 outline-none cursor-pointer text-xs"
+              title="Chuyển nhanh tài khoản demo để kiểm thử vai trò"
+            >
+              <option value="">Khách (Chưa đăng nhập)</option>
+              {Object.values(identitySessions).map((session) => (
+                <option key={session.key} value={session.key}>
+                  {session.displayName} ({session.role})
+                </option>
+              ))}
+            </select>
+          </div>
+
+          {/* User state: Guest vs Authenticated */}
+          {!currentUser ? (
+            /* Guest State: Log In & Register Buttons */
+            <div className="flex items-center gap-2">
+              <button
+                type="button"
+                onClick={() => onOpenAuth('login')}
+                className="px-3.5 py-2 text-xs font-semibold text-stone-700 hover:text-stone-900 bg-white hover:bg-stone-100 border border-stone-300 rounded-lg shadow-2xs transition-colors flex items-center gap-1.5 cursor-pointer"
+              >
+                <LogIn size={14} className="text-stone-500" />
+                <span>Đăng nhập</span>
+              </button>
+              <button
+                type="button"
+                onClick={() => onOpenAuth('register')}
+                className="px-3.5 py-2 text-xs font-semibold text-white bg-[#db5a39] hover:bg-[#c44929] rounded-lg shadow-2xs transition-all flex items-center gap-1.5 cursor-pointer"
+              >
+                <UserPlus size={14} />
+                <span>Đăng ký</span>
+              </button>
+            </div>
+          ) : (
+            /* Authenticated State: User Profile Dropdown */
+            <div className="relative" ref={dropdownRef}>
+              <button
+                type="button"
+                onClick={() => setDropdownOpen(!dropdownOpen)}
+                className="flex items-center gap-2.5 px-3 py-1.5 bg-white hover:bg-stone-50 border border-stone-300 rounded-xl shadow-2xs transition-all cursor-pointer text-left focus:outline-none focus:ring-2 focus:ring-[#db5a39]/30"
+                aria-expanded={dropdownOpen}
+                aria-haspopup="true"
+              >
+                <div className="w-8 h-8 rounded-full bg-[#34483f] text-white flex items-center justify-center font-bold text-xs shadow-inner">
+                  {currentUser.displayName ? currentUser.displayName.charAt(0).toUpperCase() : 'U'}
+                </div>
+                <div className="flex flex-col text-left">
+                  <span className="text-xs font-bold text-stone-900 leading-tight max-w-[130px] truncate" title={currentUser.displayName}>
+                    {currentUser.displayName}
+                  </span>
+                  {roleBadge && (
+                    <span className={`text-[9px] font-bold px-1.5 py-0.2 rounded-full border w-fit leading-normal mt-0.5 ${roleBadge.badgeClass}`}>
+                      {roleBadge.label}
+                    </span>
+                  )}
+                </div>
+                <ChevronDown size={14} className={`text-stone-400 transition-transform duration-200 ${dropdownOpen ? 'rotate-180' : ''}`} />
+              </button>
+
+              {/* Dropdown Menu */}
+              {dropdownOpen && (
+                <div className="absolute right-0 mt-2 w-64 bg-white rounded-xl shadow-xl border border-stone-200/90 py-1.5 z-50 animate-in fade-in zoom-in-95 duration-100">
+                  <div className="px-4 py-3 border-b border-stone-100 bg-stone-50/70">
+                    <p className="text-xs font-bold text-stone-900 truncate">{currentUser.displayName}</p>
+                    <p className="text-[11px] text-stone-500 truncate mt-0.5">{currentUser.email}</p>
+                    {roleBadge && (
+                      <span className={`inline-block text-[9px] font-bold px-2 py-0.5 rounded-full border mt-2 ${roleBadge.badgeClass}`}>
+                        {roleBadge.label}
+                      </span>
+                    )}
+                  </div>
+
+                  <div className="py-1">
+                    <button
+                      type="button"
+                      onClick={() => {
+                        onNavigate('bookings');
+                        setDropdownOpen(false);
+                      }}
+                      className="w-full px-4 py-2 text-xs font-semibold text-stone-700 hover:bg-stone-100 flex items-center gap-2.5 transition-colors cursor-pointer text-left"
+                    >
+                      <Ticket size={15} className="text-stone-500" />
+                      <span>Vé của tôi</span>
+                    </button>
+
+                    {canAccessView(currentUser.role, 'admin') && (
+                      <button
+                        type="button"
+                        onClick={() => {
+                          onNavigate('admin');
+                          setDropdownOpen(false);
+                        }}
+                        className="w-full px-4 py-2 text-xs font-semibold text-stone-700 hover:bg-stone-100 flex items-center gap-2.5 transition-colors cursor-pointer text-left"
+                      >
+                        <LayoutDashboard size={15} className="text-stone-500" />
+                        <span>Quản lý sự kiện</span>
+                      </button>
+                    )}
+
+                    {canAccessView(currentUser.role, 'checkin') && (
+                      <button
+                        type="button"
+                        onClick={() => {
+                          onNavigate('checkin');
+                          setDropdownOpen(false);
+                        }}
+                        className="w-full px-4 py-2 text-xs font-semibold text-stone-700 hover:bg-stone-100 flex items-center gap-2.5 transition-colors cursor-pointer text-left"
+                      >
+                        <QrCode size={15} className="text-stone-500" />
+                        <span>Cổng soát vé</span>
+                      </button>
+                    )}
+                  </div>
+
+                  <div className="border-t border-stone-100 pt-1">
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setDropdownOpen(false);
+                        onLogout();
+                      }}
+                      className="w-full px-4 py-2 text-xs font-semibold text-red-600 hover:bg-red-50 flex items-center gap-2.5 transition-colors cursor-pointer text-left"
+                    >
+                      <LogOut size={15} />
+                      <span>Đăng xuất</span>
+                    </button>
+                  </div>
+                </div>
+              )}
+            </div>
+          )}
+        </div>
       </div>
     </header>
   );
 }
 
 function NavButton({ active, icon, onClick, children }: { active: boolean; icon: ReactNode; onClick: () => void; children: ReactNode }) {
-  return <button className={active ? 'active' : ''} onClick={onClick}>{icon}{children}</button>;
+  return (
+    <button
+      type="button"
+      onClick={onClick}
+      className={`px-3 py-1.5 text-xs sm:text-sm font-semibold rounded-lg flex items-center gap-1.5 transition-colors border-0 cursor-pointer ${
+        active
+          ? 'text-stone-900 bg-stone-200/90 shadow-2xs'
+          : 'text-stone-600 hover:text-stone-900 hover:bg-stone-200/50'
+      }`}
+    >
+      {icon}
+      <span>{children}</span>
+    </button>
+  );
 }
 
 // BrowseFlow selects the correct screen for each stage of a single booking journey.
